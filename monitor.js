@@ -29,21 +29,14 @@ slackEvents.on('message', async (event) => {
     console.log('🔍 ID kanału (event.channel):', event.channel);
 
     try {
-        // Jeśli to wiadomość DM, pobierz szczegóły konwersacji
+        // Sprawdzamy, czy to wiadomość DM
         if (event.channel && event.channel.startsWith('D')) { // Wiadomość DM
-            const channelInfo = await slackClient.conversations.info({ channel: event.channel });
+            const userInfo = await slackClient.users.info({ user: event.user });
+            const userName = userInfo.user.real_name;
 
-            // Sprawdzenie, czy kanał istnieje
-            if (channelInfo.ok) {
-                const userInfo = await slackClient.users.info({ user: event.user });
-                const userName = userInfo.user.real_name;
-
-                console.log(`Konwersacja prywatna z: ${userName}`);
-                console.log(`Wiadomość od: ${userName}`);
-                console.log('Treść:', event.text);
-            } else {
-                console.error('❌ Błąd: Nie znaleziono kanału DM');
-            }
+            console.log(`Konwersacja prywatna z: ${userName}`);
+            console.log(`Wiadomość od: ${userName}`);
+            console.log('Treść:', event.text);
         }
     } catch (error) {
         console.error('❌ Błąd Slack Events API:', error);
