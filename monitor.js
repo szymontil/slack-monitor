@@ -28,22 +28,33 @@ slackEvents.on('message', async (event) => {
     // Logowanie ID użytkownika dla debugowania
     console.log('🔍 ID użytkownika wiadomości:', event.user);
 
-    // Pobierz nazwę użytkownika wysyłającego wiadomość
-    const userInfo = await slackClient.users.info({ user: event.user });
-    const userName = userInfo.user.real_name;
+    // Logowanie channel_id w celu debugowania
+    console.log('🔍 ID kanału (event.channel):', event.channel);
 
-    // Pobierz szczegóły konwersacji (DM) za pomocą channel_id
-    const conversationInfo = await slackClient.conversations.info({ channel: event.channel });
-    const conversationUser = conversationInfo.channel.created_by;
+    try {
+        // Jeśli to wiadomość DM, pobierz szczegóły konwersacji
+        if (event.channel && event.channel.startsWith('D')) { // Wiadomość DM
+            const channelInfo = await slackClient.conversations.info({ channel: event.channel });
 
-    // Pobierz nazwisko użytkownika rozpoczynającego konwersację
-    const conversationUserInfo = await slackClient.users.info({ user: conversationUser });
-    const conversationUserName = conversationUserInfo.user.real_name;
+            // Sprawdzenie, czy kanał istnieje
+            if (channelInfo.ok) {
+                console.log(`🔐 Konwersacja z: ${channelInfo.channel.name}`);
+            } else {
+                console.error('❌ Błąd: Nie znaleziono kanału!');
+            }
 
-    // Logowanie konwersacji i wiadomości
-    console.log(`Konwersacja prywatna z: ${conversationUserName}`);
-    console.log(`Wiadomość od: ${userName}`);
-    console.log('Treść:', event.text);
+            // Pobierz szczegóły użytkownika wysyłającego wiadomość
+            const userInfo = await slackClient.users.info({ user: event.user });
+            const userName = userInfo.user.real_name;
+
+            // Logowanie konwersacji i wiadomości
+            console.log(`Konwersacja prywatna z: ${userName}`);
+            console.log(`Wiadomość od: ${userName}`);
+            console.log('Treść:', event.text);
+        }
+    } catch (error) {
+        console.error('❌ Błąd Slack Events API:', error);
+    }
 });
 
 // Obsługa błędów
