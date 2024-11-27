@@ -10,7 +10,7 @@ const Queue = require('bull');
 const dotenv = require('dotenv');
 const dayjs = require('dayjs');
 
-// Ładowanie zmiennych środowiskowych z pliku .env
+// Ładowanie zmiennych środowiskowych z pliku .env (tylko lokalnie)
 dotenv.config();
 
 // Sprawdzenie, czy wszystkie wymagane zmienne środowiskowe są ustawione
@@ -20,10 +20,10 @@ const requiredEnvVars = [
     'TARGET_USER_ID',
     'OPENAI_API_KEY',
     'TODOIST_API_KEY',
-    'MONGO_URL', // Zmieniona zmienna
-    'REDIS_HOST',
-    'REDIS_PORT',
-    // 'REDIS_PASSWORD', // Odkomentuj, jeśli Redis wymaga hasła
+    'MONGO_URL',       
+    'REDISHOST',       
+    'REDISPORT',
+    'REDIS_PASSWORD', 
 ];
 
 requiredEnvVars.forEach((varName) => {
@@ -34,7 +34,7 @@ requiredEnvVars.forEach((varName) => {
 });
 
 // Połączenie z MongoDB
-mongoose.connect(process.env.MONGO_URL, { // Zmieniono z MONGODB_URI na MONGO_URL
+mongoose.connect(process.env.MONGO_URL, { // Użycie MONGO_URL
     useNewUrlParser: true,
     useUnifiedTopology: true,
 })
@@ -75,12 +75,12 @@ const app = express();
 // Inicjalizacja Slack WebClient z User Token
 const slackClient = new WebClient(process.env.SLACK_USER_TOKEN);
 
-// Konfiguracja kolejki z Bull z użyciem zmiennych środowiskowych z Railway
+// Konfiguracja kolejki z Bull z użyciem poprawionych zmiennych środowiskowych Redis
 const contextQueue = new Queue('contextQueue', {
     redis: {
-        host: process.env.REDIS_HOST,
-        port: process.env.REDIS_PORT,
-        password: process.env.REDIS_PASSWORD || '',
+        host: process.env.REDISHOST,      // Poprawiona nazwa zmiennej
+        port: process.env.REDISPORT,      // Poprawiona nazwa zmiennej
+        password: process.env.REDIS_PASSWORD || '', // Dodaj, jeśli Redis wymaga hasła
     },
 });
 
