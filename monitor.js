@@ -1,13 +1,13 @@
 const { createEventAdapter } = require('@slack/events-api');
 const express = require('express');
 const dotenv = require('dotenv');
+const { WebClient } = require('@slack/web-api');
 
 dotenv.config();
 
-console.log('🔍 TARGET_USER_ID ustawione na:', process.env.TARGET_USER_ID);  // Logowanie TARGET_USER_ID
-
 const slackEvents = createEventAdapter(process.env.SLACK_SIGNING_SECRET);
 const app = express();
+const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
 const PORT = process.env.PORT || 3000;
 
 // Middleware do obsługi zdarzeń
@@ -25,17 +25,25 @@ app.post('/slack/events', express.json(), (req, res) => {
 
 // Obsługa zdarzeń `message.im` (DM do Ciebie)
 slackEvents.on('message', async (event) => {
-    // Logowanie ID użytkownika, aby upewnić się, że poprawnie rozpoznajemy wiadomości
+    // Logowanie ID użytkownika dla debugowania
     console.log('🔍 ID użytkownika wiadomości:', event.user);
 
-    // Filtruj wiadomości wysyłane przez Ciebie
-    if (event.channel_type === 'im' && event.user !== process.env.TARGET_USER_ID) {
-        console.log('📩 Otrzymano wiadomość DM do Twojego użytkownika:');
-        console.log('🆔 Użytkownik:', event.user);
-        console.log('💬 Treść:', event.text);
-    } else if (event.user === process.env.TARGET_USER_ID) {
-        console.log('⏭️ Pomijam własną wiadomość (od TARGET_USER_ID)');
-    }
+    // Pobierz nazwę użytkownika wysyłającego wiadomość
+    const userInfo = await slackClient.users.info({ user: event.user });
+    const userName = userInfo.user.real_name;
+
+    // Pobierz nazwę użytkownika rozpoczynającego konwersację
+    const conversationInfo = await slackClient.conversations.info({ channel: event.channel });
+    const conversationUser = conversationInfo.channel.created_by;
+
+    // Pobierz nazwę użytkownika rozpoczynającego konwersację
+    const conversationUserInfo = await slackClient.users.info({ user: conversationUser });
+    const conversationUserName = conversationUserInfo.user.real_name;
+
+    // Logowanie konwersacji i wiadomości
+    console.log(`Konwersacja z: ${conversationUserName}`);
+    console.log(`Wiadomość od: ${userName}`);
+    console.log('Treść:', event.text);
 });
 
 // Obsługa błędów
