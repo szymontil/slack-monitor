@@ -1,0 +1,21 @@
+{
+  "name": "slack-monitor",
+  "version": "1.0.0",
+  "main": "monitor.js",
+  "dependencies": {
+    "@doist/todoist-api-typescript": "^2.2.0",
+    "@slack/bolt": "^3.22.0",
+    "@slack/events-api": "^3.0.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "openai": "^4.73.1"
+  },
+  "scripts": {
+    "start": "node monitor.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Szymon Til",
+  "license": "UNLICENSED",
+  "description": "Slack monitoring app for direct messages and events handling."
+}
