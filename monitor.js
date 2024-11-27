@@ -34,7 +34,13 @@ slackEvents.on('message', async (event) => {
             const userInfo = await slackClient.users.info({ user: event.user });
             const userName = userInfo.user.real_name;
 
-            console.log(`Konwersacja prywatna z: ${userName}`);
+            // Pobieramy informacje o drugiej osobie w rozmowie (zaczynamy od kanału)
+            const conversationInfo = await slackClient.conversations.info({ channel: event.channel });
+            const conversationPartnerId = conversationInfo.channel.members.find(id => id !== event.user); // ID drugiej osoby w rozmowie
+            const conversationPartnerInfo = await slackClient.users.info({ user: conversationPartnerId });
+            const conversationPartnerName = conversationPartnerInfo.user.real_name;
+
+            console.log(`Konwersacja prywatna z: ${conversationPartnerName}`);
             console.log(`Wiadomość od: ${userName}`);
             console.log('Treść:', event.text);
         }
