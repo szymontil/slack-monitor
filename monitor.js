@@ -4,6 +4,8 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
+console.log('🔍 TARGET_USER_ID ustawione na:', process.env.TARGET_USER_ID);  // Logowanie TARGET_USER_ID
+
 const slackEvents = createEventAdapter(process.env.SLACK_SIGNING_SECRET);
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,13 +25,16 @@ app.post('/slack/events', express.json(), (req, res) => {
 
 // Obsługa zdarzeń `message.im` (DM do Ciebie)
 slackEvents.on('message', async (event) => {
+    // Logowanie ID użytkownika, aby upewnić się, że poprawnie rozpoznajemy wiadomości
+    console.log('🔍 ID użytkownika wiadomości:', event.user);
+
     // Filtruj wiadomości wysyłane przez Ciebie
     if (event.channel_type === 'im' && event.user !== process.env.TARGET_USER_ID) {
         console.log('📩 Otrzymano wiadomość DM do Twojego użytkownika:');
         console.log('🆔 Użytkownik:', event.user);
         console.log('💬 Treść:', event.text);
     } else if (event.user === process.env.TARGET_USER_ID) {
-        console.log('⏭️ Pomijam własną wiadomość');
+        console.log('⏭️ Pomijam własną wiadomość (od TARGET_USER_ID)');
     }
 });
 
