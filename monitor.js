@@ -25,10 +25,7 @@ app.post('/slack/events', express.json(), (req, res) => {
 
 // Obsługa zdarzeń `message.im` (DM do Ciebie)
 slackEvents.on('message', async (event) => {
-    // Logowanie ID użytkownika dla debugowania
     console.log('🔍 ID użytkownika wiadomości:', event.user);
-
-    // Logowanie channel_id w celu debugowania
     console.log('🔍 ID kanału (event.channel):', event.channel);
 
     try {
@@ -38,19 +35,15 @@ slackEvents.on('message', async (event) => {
 
             // Sprawdzenie, czy kanał istnieje
             if (channelInfo.ok) {
-                console.log(`🔐 Konwersacja z: ${channelInfo.channel.name}`);
+                const userInfo = await slackClient.users.info({ user: event.user });
+                const userName = userInfo.user.real_name;
+
+                console.log(`Konwersacja prywatna z: ${userName}`);
+                console.log(`Wiadomość od: ${userName}`);
+                console.log('Treść:', event.text);
             } else {
-                console.error('❌ Błąd: Nie znaleziono kanału!');
+                console.error('❌ Błąd: Nie znaleziono kanału DM');
             }
-
-            // Pobierz szczegóły użytkownika wysyłającego wiadomość
-            const userInfo = await slackClient.users.info({ user: event.user });
-            const userName = userInfo.user.real_name;
-
-            // Logowanie konwersacji i wiadomości
-            console.log(`Konwersacja prywatna z: ${userName}`);
-            console.log(`Wiadomość od: ${userName}`);
-            console.log('Treść:', event.text);
         }
     } catch (error) {
         console.error('❌ Błąd Slack Events API:', error);
