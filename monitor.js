@@ -1,15 +1,37 @@
+// monitor.js
+
 const { createEventAdapter } = require('@slack/events-api');
 const express = require('express');
 const { WebClient } = require('@slack/web-api');
 const cron = require('node-cron');
 const axios = require('axios');
-const { v4: uuidv4 } = require('uuid');
-const dayjs = require('dayjs');
 const mongoose = require('mongoose');
 const Queue = require('bull');
 const dotenv = require('dotenv');
+const dayjs = require('dayjs');
 
+// Ładowanie zmiennych środowiskowych z pliku .env
 dotenv.config();
+
+// Sprawdzenie, czy wszystkie wymagane zmienne środowiskowe są ustawione
+const requiredEnvVars = [
+    'SLACK_SIGNING_SECRET',
+    'SLACK_USER_TOKEN',
+    'TARGET_USER_ID',
+    'OPENAI_API_KEY',
+    'TODOIST_API_KEY',
+    'MONGODB_URI',
+    'REDIS_HOST',
+    'REDIS_PORT',
+    // 'REDIS_PASSWORD', // Odkomentuj, jeśli Redis wymaga hasła
+];
+
+requiredEnvVars.forEach((varName) => {
+    if (!process.env[varName]) {
+        console.error(`❌ Brak wymaganej zmiennej środowiskowej: ${varName}`);
+        process.exit(1);
+    }
+});
 
 // Połączenie z MongoDB
 mongoose.connect(process.env.MONGODB_URI, {
@@ -17,7 +39,10 @@ mongoose.connect(process.env.MONGODB_URI, {
     useUnifiedTopology: true,
 })
 .then(() => console.log('✅ Połączono z MongoDB'))
-.catch(err => console.error('❌ Błąd połączenia z MongoDB:', err));
+.catch(err => {
+    console.error('❌ Błąd połączenia z MongoDB:', err);
+    process.exit(1);
+});
 
 // Definicja Schematów
 const { Schema } = mongoose;
@@ -50,23 +75,20 @@ const app = express();
 // Inicjalizacja Slack WebClient z User Token
 const slackClient = new WebClient(process.env.SLACK_USER_TOKEN);
 
-// Port aplikacji
-const PORT = process.env.PORT || 3000;
+// Konfiguracja kolejki z Bull z użyciem zmiennych środowiskowych z Railway
+const contextQueue = new Queue('contextQueue', {
+    redis: {
+        host: process.env.REDIS_HOST,
+        port: process.env.REDIS_PORT,
+        password: process.env.REDIS_PASSWORD || '',
+    },
+});
 
 // Middleware dla Slack Events Adapter - musi być przed innymi middleware parsującymi ciało żądania
 app.use('/slack/events', slackEvents.expressMiddleware());
 
 // Middleware globalny do parsowania JSON dla wszystkich innych tras
 app.use(express.json());
-
-// Konfiguracja kolejki z Bull
-const contextQueue = new Queue('contextQueue', {
-    redis: {
-        host: process.env.REDIS_HOST || '127.0.0.1',
-        port: process.env.REDIS_PORT || 6379,
-        password: process.env.REDIS_PASSWORD || '',
-    },
-});
 
 // Funkcja do dodawania wiadomości do kontekstu
 const addMessageToContext = async (channelId, message) => {
@@ -235,9 +257,9 @@ const processContext = async (channelId, context) => {
         console.log(`📝 Przesyłanie kontekstu do OpenAI dla kanału: ${channelId}`);
         console.log(compiledContext);
 
-        // Wysyłanie do OpenAI
+        // Wysyłanie do OpenAI (użyj modelu GPT-4)
         const openAIResponse = await axios.post('https://api.openai.com/v1/chat/completions', {
-            model: 'gpt-4-mini', // Użyj odpowiedniego modelu
+            model: 'gpt-4', // Użyj odpowiedniego modelu, np. 'gpt-4' lub 'gpt-4-0613'
             messages: [
                 { role: 'system', content: 'Jesteś asystentem pomagającym identyfikować zadania z rozmów.' },
                 { role: 'user', content: `Przeanalizuj poniższą rozmowę i określ, czy zawiera ona jakieś zadania do wykonania. Jeśli tak, podaj szczegóły zadania.\n\n${compiledContext}` },
@@ -313,12 +335,12 @@ const addTaskToTodoist = async (taskContent) => {
     }
 };
 
-// Obsługa błędów
+// Obsługa błędów Slack Events API
 slackEvents.on('error', (error) => {
     console.error('❌ Błąd Slack Events API:', error);
 });
 
 // Start serwera
-app.listen(PORT, () => {
-    console.log(`🚀 Slack Events API działa na porcie ${PORT}`);
+app.listen(process.env.PORT || 8080, () => {
+    console.log(`🚀 Slack Events API działa na porcie ${process.env.PORT || 8080}`);
 });
