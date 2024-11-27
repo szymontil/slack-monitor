@@ -20,10 +20,10 @@ const requiredEnvVars = [
     'TARGET_USER_ID',
     'OPENAI_API_KEY',
     'TODOIST_API_KEY',
-    'MONGO_URL',       
-    'REDISHOST',       
+    'MONGO_URL',       // Poprawiona nazwa zmiennej
+    'REDISHOST',       // Poprawiona nazwa zmiennej
     'REDISPORT',
-    'REDIS_PASSWORD', 
+    // 'REDIS_PASSWORD', // Odkomentuj, jeśli Redis wymaga hasła
 ];
 
 requiredEnvVars.forEach((varName) => {
@@ -34,10 +34,7 @@ requiredEnvVars.forEach((varName) => {
 });
 
 // Połączenie z MongoDB
-mongoose.connect(process.env.MONGO_URL, { // Użycie MONGO_URL
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-})
+mongoose.connect(process.env.MONGO_URL) // Usunięto przestarzałe opcje
 .then(() => console.log('✅ Połączono z MongoDB'))
 .catch(err => {
     console.error('❌ Błąd połączenia z MongoDB:', err);
