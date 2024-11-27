@@ -11,6 +11,16 @@ const PORT = process.env.PORT || 3000;
 // Middleware do obsługi zdarzeń
 app.use('/slack/events', slackEvents.expressMiddleware());
 
+// Obsługa weryfikacji URL Slacka
+app.post('/slack/events', express.json(), (req, res) => {
+    if (req.body.type === 'url_verification') {
+        console.log('🔑 Weryfikacja URL:', req.body.challenge);
+        res.status(200).send(req.body.challenge); // Zwróć wartość challenge
+    } else {
+        res.status(404).send('Not found');
+    }
+});
+
 // Obsługa zdarzeń `message.im` (DM do Ciebie)
 slackEvents.on('message', async (event) => {
     if (event.channel_type === 'im') {
