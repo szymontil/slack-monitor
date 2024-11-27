@@ -20,7 +20,7 @@ const requiredEnvVars = [
     'TARGET_USER_ID',
     'OPENAI_API_KEY',
     'TODOIST_API_KEY',
-    'MONGODB_URI',
+    'MONGO_URL', // Zmieniona zmienna
     'REDIS_HOST',
     'REDIS_PORT',
     // 'REDIS_PASSWORD', // Odkomentuj, jeśli Redis wymaga hasła
@@ -34,7 +34,7 @@ requiredEnvVars.forEach((varName) => {
 });
 
 // Połączenie z MongoDB
-mongoose.connect(process.env.MONGODB_URI, {
+mongoose.connect(process.env.MONGO_URL, { // Zmieniono z MONGODB_URI na MONGO_URL
     useNewUrlParser: true,
     useUnifiedTopology: true,
 })
@@ -341,6 +341,7 @@ slackEvents.on('error', (error) => {
 });
 
 // Start serwera
-app.listen(process.env.PORT || 8080, () => {
-    console.log(`🚀 Slack Events API działa na porcie ${process.env.PORT || 8080}`);
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => {
+    console.log(`🚀 Slack Events API działa na porcie ${PORT}`);
 });
