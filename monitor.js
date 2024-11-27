@@ -1,6 +1,45 @@
 const { createEventAdapter } = require('@slack/events-api');
 const express = require('express');
 const { WebClient } = require('@slack/web-api');
+const cron = require('node-cron');
+const axios = require('axios');
+const { v4: uuidv4 } = require('uuid');
+const dayjs = require('dayjs');
+const mongoose = require('mongoose');
+const Queue = require('bull');
+const dotenv = require('dotenv');
+
+dotenv.config();
+
+// Połączenie z MongoDB
+mongoose.connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+})
+.then(() => console.log('✅ Połączono z MongoDB'))
+.catch(err => console.error('❌ Błąd połączenia z MongoDB:', err));
+
+// Definicja Schematów
+const { Schema } = mongoose;
+
+// Schemat wiadomości
+const messageSchema = new Schema({
+    channelId: { type: String, required: true },
+    senderId: { type: String, required: true },
+    senderName: { type: String, required: true },
+    text: { type: String, required: true },
+    timestamp: { type: Date, required: true },
+});
+
+// Schemat kontekstu
+const contextSchema = new Schema({
+    channelId: { type: String, required: true, unique: true },
+    messages: [{ type: Schema.Types.ObjectId, ref: 'Message' }],
+    lastActivity: { type: Date, required: true },
+});
+
+const Message = mongoose.model('Message', messageSchema);
+const Context = mongoose.model('Context', contextSchema);
 
 // Inicjalizacja Slack Events Adapter
 const slackEvents = createEventAdapter(process.env.SLACK_SIGNING_SECRET);
@@ -19,6 +58,34 @@ app.use('/slack/events', slackEvents.expressMiddleware());
 
 // Middleware globalny do parsowania JSON dla wszystkich innych tras
 app.use(express.json());
+
+// Konfiguracja kolejki z Bull
+const contextQueue = new Queue('contextQueue', {
+    redis: {
+        host: process.env.REDIS_HOST || '127.0.0.1',
+        port: process.env.REDIS_PORT || 6379,
+        password: process.env.REDIS_PASSWORD || '',
+    },
+});
+
+// Funkcja do dodawania wiadomości do kontekstu
+const addMessageToContext = async (channelId, message) => {
+    const now = dayjs();
+    let context = await Context.findOne({ channelId });
+
+    if (context) {
+        context.messages.push(message._id);
+        context.lastActivity = now.toDate();
+    } else {
+        context = new Context({
+            channelId,
+            messages: [message._id],
+            lastActivity: now.toDate(),
+        });
+    }
+
+    await context.save();
+};
 
 // Funkcja pomocnicza do pobrania informacji o użytkowniku
 const getUserInfo = async (userId) => {
@@ -58,6 +125,7 @@ slackEvents.on('message', async (event) => {
             const senderName = senderInfo.real_name;
 
             // Pobranie informacji o kanale DM
+            console.log(`Attempting to fetch info for channel: ${event.channel}`);
             const conversationInfo = await slackClient.conversations.info({ channel: event.channel });
             if (!conversationInfo.ok) {
                 console.log(`❌ Nie udało się pobrać informacji o kanale: ${event.channel}`);
@@ -89,11 +157,161 @@ slackEvents.on('message', async (event) => {
             console.log(`Konwersacja prywatna z: ${conversationWith}`);
             console.log(`Wiadomość od: ${messageFrom}`);
             console.log(`Treść: ${event.text}\n`);
+
+            // Zapisz wiadomość do bazy danych
+            const message = new Message({
+                channelId: event.channel,
+                senderId: event.user,
+                senderName: senderName,
+                text: event.text,
+                timestamp: new Date(parseFloat(event.ts) * 1000), // Slack timestamp jest w sekundach
+            });
+
+            await message.save();
+
+            // Dodaj wiadomość do kontekstu
+            await addMessageToContext(event.channel, message);
         }
     } catch (error) {
         console.error('❌ Błąd Slack Events API:', error);
     }
 });
+
+// Harmonogram sprawdzania nieaktywnych kontekstów co 10 minut
+cron.schedule('*/10 * * * *', async () => {
+    console.log('🕒 Sprawdzanie nieaktywnych kontekstów...');
+    const now = dayjs();
+
+    try {
+        const inactiveContexts = await Context.find({ lastActivity: { $lte: now.subtract(60, 'minute').toDate() } });
+
+        for (const context of inactiveContexts) {
+            console.log(`Dodawanie kontekstu do kolejki dla kanału: ${context.channelId}`);
+            // Dodaj zadanie do kolejki
+            await contextQueue.add({ channelId: context.channelId, contextId: context._id });
+        }
+    } catch (error) {
+        console.error('❌ Błąd podczas sprawdzania kontekstów:', error);
+    }
+});
+
+// Procesor kolejki
+contextQueue.process(async (job) => {
+    const { channelId, contextId } = job.data;
+    console.log(`🔄 Przetwarzanie kontekstu z kanału: ${channelId}`);
+
+    try {
+        const context = await Context.findById(contextId);
+        if (!context) {
+            console.log(`❌ Kontekst o ID ${contextId} nie został znaleziony.`);
+            return;
+        }
+
+        await processContext(channelId, context);
+    } catch (error) {
+        console.error(`❌ Błąd podczas przetwarzania kontekstu dla kanału ${channelId}:`, error);
+        throw error; // Bull będzie wiedział, że zadanie nie powiodło się
+    }
+});
+
+// Obsługa zdarzeń kolejki
+contextQueue.on('completed', (job, result) => {
+    console.log(`✅ Zadanie ${job.id} zakończone sukcesem.`);
+});
+
+contextQueue.on('failed', (job, err) => {
+    console.error(`❌ Zadanie ${job.id} zakończyło się błędem:`, err);
+});
+
+// Funkcja do przetwarzania kontekstu i wysyłania go do OpenAI
+const processContext = async (channelId, context) => {
+    try {
+        // Pobierz wiadomości z bazy danych
+        const messages = await Message.find({ _id: { $in: context.messages } }).sort({ timestamp: 1 });
+
+        // Kompilacja wiadomości w kontekście
+        const compiledContext = messages.map(msg => `${msg.senderName}: ${msg.text}`).join('\n');
+
+        console.log(`📝 Przesyłanie kontekstu do OpenAI dla kanału: ${channelId}`);
+        console.log(compiledContext);
+
+        // Wysyłanie do OpenAI
+        const openAIResponse = await axios.post('https://api.openai.com/v1/chat/completions', {
+            model: 'gpt-4-mini', // Użyj odpowiedniego modelu
+            messages: [
+                { role: 'system', content: 'Jesteś asystentem pomagającym identyfikować zadania z rozmów.' },
+                { role: 'user', content: `Przeanalizuj poniższą rozmowę i określ, czy zawiera ona jakieś zadania do wykonania. Jeśli tak, podaj szczegóły zadania.\n\n${compiledContext}` },
+            ],
+            max_tokens: 150,
+            temperature: 0.5,
+        }, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+            },
+        });
+
+        const analysis = openAIResponse.data.choices[0].message.content.trim();
+        console.log(`🔍 Analiza OpenAI:\n${analysis}`);
+
+        // Sprawdzenie, czy OpenAI wykryło zadanie
+        if (/zadanie|task/i.test(analysis)) {
+            // Wyodrębnij treść zadania
+            const task = extractTask(analysis);
+            if (task) {
+                // Przeanalizuj, czy zadanie jest dla Ciebie
+                if (isTaskForMe(task)) {
+                    // Dodaj zadanie do Todoist
+                    await addTaskToTodoist(task);
+                    console.log('✅ Zadanie zostało dodane do Todoist.');
+                }
+            }
+        } else {
+            console.log('ℹ️ Brak zadań do dodania.');
+        }
+    } catch (error) {
+        console.error('❌ Błąd podczas przetwarzania kontekstu przez OpenAI:', error.response ? error.response.data : error.message);
+    }
+};
+
+// Funkcja do wyodrębniania zadania z odpowiedzi OpenAI
+const extractTask = (analysis) => {
+    // Prosta implementacja: zakładamy, że zadanie jest po słowie "Zadanie:" lub "Task:"
+    const taskPrefixes = ['Zadanie:', 'Task:'];
+    for (const prefix of taskPrefixes) {
+        const index = analysis.indexOf(prefix);
+        if (index !== -1) {
+            return analysis.substring(index + prefix.length).trim();
+        }
+    }
+    return null;
+};
+
+// Funkcja do określenia, czy zadanie jest dla Ciebie
+const isTaskForMe = (task) => {
+    // Możesz dodać bardziej zaawansowane kryteria
+    // Na przykład, sprawdzenie, czy zadanie zawiera Twoje imię lub inne identyfikatory
+    return true; // Zakładamy, że wszystkie zadania są dla Ciebie
+};
+
+// Funkcja do dodawania zadania do Todoist
+const addTaskToTodoist = async (taskContent) => {
+    try {
+        const todoistResponse = await axios.post('https://api.todoist.com/rest/v2/tasks', {
+            content: taskContent,
+            due_string: 'today', // Możesz dostosować termin wykonania
+        }, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.TODOIST_API_KEY}`,
+            },
+        });
+
+        console.log('✅ Zadanie dodane do Todoist:', todoistResponse.data);
+    } catch (error) {
+        console.error('❌ Błąd podczas dodawania zadania do Todoist:', error.response ? error.response.data : error.message);
+    }
+};
 
 // Obsługa błędów
 slackEvents.on('error', (error) => {
