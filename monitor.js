@@ -1,55 +1,89 @@
 const { createEventAdapter } = require('@slack/events-api');
 const express = require('express');
-const dotenv = require('dotenv');
 const { WebClient } = require('@slack/web-api');
 
-dotenv.config();
-
+// Inicjalizacja Slack Events Adapter
 const slackEvents = createEventAdapter(process.env.SLACK_SIGNING_SECRET);
+
+// Inicjalizacja Express
 const app = express();
+
+// Inicjalizacja Slack WebClient
 const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
+
+// Port aplikacji
 const PORT = process.env.PORT || 3000;
 
-// Globalne middleware do parsowania JSON
-app.use(express.json());
-
-// Middleware do obsługi zdarzeń
+// Middleware dla Slack Events Adapter - musi być przed innymi middleware parsującymi ciało żądania
 app.use('/slack/events', slackEvents.expressMiddleware());
 
-// Obsługa zdarzeń `message` (DM do bota)
-slackEvents.on('message', async (event) => {
-    // Ignoruj wiadomości od botów
-    if (event.bot_id) {
-        return;
-    }
+// Middleware globalny do parsowania JSON dla wszystkich innych tras
+app.use(express.json());
 
-    console.log('🔍 ID użytkownika wiadomości:', event.user);
-    console.log('🔍 ID kanału (event.channel):', event.channel);
-
+// Funkcja pomocnicza do pobrania informacji o użytkowniku
+const getUserInfo = async (userId) => {
     try {
-        // Sprawdzamy, czy to wiadomość DM
-        if (event.channel && event.channel.startsWith('D')) { // Wiadomość DM
-            const userInfo = await slackClient.users.info({ user: event.user });
-            const userName = userInfo.user.real_name;
+        const response = await slackClient.users.info({ user: userId });
+        if (response.ok) {
+            return response.user;
+        } else {
+            console.error(`❌ Nie udało się pobrać informacji o użytkowniku: ${userId}`);
+            return null;
+        }
+    } catch (error) {
+        console.error(`❌ Błąd podczas pobierania informacji o użytkowniku: ${error}`);
+        return null;
+    }
+};
 
-            // Pobieramy członków kanału DM
+// Obsługa zdarzeń `message`
+slackEvents.on('message', async (event) => {
+    try {
+        // Ignoruj wiadomości od botów i samego bota
+        if (event.bot_id) {
+            return;
+        }
+
+        // Sprawdzenie, czy to wiadomość DM
+        if (event.channel && event.channel.startsWith('D')) {
+            // Pobranie informacji o nadawcy
+            const senderInfo = await getUserInfo(event.user);
+            if (!senderInfo) {
+                return;
+            }
+
+            const senderName = senderInfo.real_name;
+
+            // Pobranie członków kanału DM
             const membersResponse = await slackClient.conversations.members({ channel: event.channel });
-
-            // Jeśli udało się pobrać członków
             if (membersResponse.ok) {
-                // Filtrujemy użytkownika, który wysłał wiadomość
-                const conversationPartnerId = membersResponse.members.find(id => id !== event.user); // ID drugiej osoby w rozmowie
-                if (conversationPartnerId) {
-                    const conversationPartnerInfo = await slackClient.users.info({ user: conversationPartnerId });
-                    const conversationPartnerName = conversationPartnerInfo.user.real_name;
+                const members = membersResponse.members;
 
-                    console.log(`Konwersacja prywatna z: ${conversationPartnerName}`);
-                } else {
+                // Znalezienie ID drugiej osoby w rozmowie (nie TARGET_USER_ID)
+                const conversationPartnerId = members.find(id => id !== process.env.TARGET_USER_ID);
+
+                if (!conversationPartnerId) {
                     console.log('❌ Nie znaleziono partnera rozmowy.');
+                    return;
                 }
 
-                console.log(`Wiadomość od: ${userName}`);
-                console.log('Treść:', event.text);
+                const partnerInfo = await getUserInfo(conversationPartnerId);
+                if (!partnerInfo) {
+                    return;
+                }
+
+                const partnerName = partnerInfo.real_name;
+
+                // Określenie, kto wysłał wiadomość
+                const messageFrom = (event.user === process.env.TARGET_USER_ID) ? 'Szymon Til' : partnerName;
+
+                // Określenie, z kim prowadzona jest rozmowa
+                const conversationWith = partnerName;
+
+                // Logowanie w żądanym formacie
+                console.log(`Konwersacja prywatna z: ${conversationWith}`);
+                console.log(`Wiadomość od: ${messageFrom}`);
+                console.log(`Treść: ${event.text}\n`);
             } else {
                 console.log('❌ Nie udało się pobrać członków kanału');
             }
