@@ -10,21 +10,19 @@ const app = express();
 const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
 const PORT = process.env.PORT || 3000;
 
+// Globalne middleware do parsowania JSON
+app.use(express.json());
+
 // Middleware do obsługi zdarzeń
 app.use('/slack/events', slackEvents.expressMiddleware());
 
-// Obsługa weryfikacji URL Slacka
-app.post('/slack/events', express.json(), (req, res) => {
-    if (req.body.type === 'url_verification') {
-        console.log('🔑 Weryfikacja URL:', req.body.challenge);
-        res.status(200).send(req.body.challenge); // Zwróć wartość challenge
-    } else {
-        res.status(404).send('Not found');
-    }
-});
-
-// Obsługa zdarzeń `message.im` (DM do Ciebie)
+// Obsługa zdarzeń `message` (DM do bota)
 slackEvents.on('message', async (event) => {
+    // Ignoruj wiadomości od botów
+    if (event.bot_id) {
+        return;
+    }
+
     console.log('🔍 ID użytkownika wiadomości:', event.user);
     console.log('🔍 ID kanału (event.channel):', event.channel);
 
@@ -41,10 +39,15 @@ slackEvents.on('message', async (event) => {
             if (membersResponse.ok) {
                 // Filtrujemy użytkownika, który wysłał wiadomość
                 const conversationPartnerId = membersResponse.members.find(id => id !== event.user); // ID drugiej osoby w rozmowie
-                const conversationPartnerInfo = await slackClient.users.info({ user: conversationPartnerId });
-                const conversationPartnerName = conversationPartnerInfo.user.real_name;
+                if (conversationPartnerId) {
+                    const conversationPartnerInfo = await slackClient.users.info({ user: conversationPartnerId });
+                    const conversationPartnerName = conversationPartnerInfo.user.real_name;
 
-                console.log(`Konwersacja prywatna z: ${conversationPartnerName}`);
+                    console.log(`Konwersacja prywatna z: ${conversationPartnerName}`);
+                } else {
+                    console.log('❌ Nie znaleziono partnera rozmowy.');
+                }
+
                 console.log(`Wiadomość od: ${userName}`);
                 console.log('Treść:', event.text);
             } else {
