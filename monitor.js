@@ -35,11 +35,11 @@ requiredEnvVars.forEach((varName) => {
 
 // Połączenie z MongoDB
 mongoose.connect(process.env.MONGO_URL) // Usunięto przestarzałe opcje
-.then(() => console.log('✅ Połączono z MongoDB'))
-.catch(err => {
-    console.error('❌ Błąd połączenia z MongoDB:', err);
-    process.exit(1);
-});
+    .then(() => console.log('✅ Połączono z MongoDB'))
+    .catch(err => {
+        console.error('❌ Błąd połączenia z MongoDB:', err);
+        process.exit(1);
+    });
 
 // Definicja Schematów
 const { Schema } = mongoose;
