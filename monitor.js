@@ -32,16 +32,16 @@ slackEvents.on('message', async (event) => {
     const userInfo = await slackClient.users.info({ user: event.user });
     const userName = userInfo.user.real_name;
 
-    // Pobierz nazwę użytkownika rozpoczynającego konwersację
+    // Pobierz szczegóły konwersacji (DM) za pomocą channel_id
     const conversationInfo = await slackClient.conversations.info({ channel: event.channel });
     const conversationUser = conversationInfo.channel.created_by;
 
-    // Pobierz nazwę użytkownika rozpoczynającego konwersację
+    // Pobierz nazwisko użytkownika rozpoczynającego konwersację
     const conversationUserInfo = await slackClient.users.info({ user: conversationUser });
     const conversationUserName = conversationUserInfo.user.real_name;
 
     // Logowanie konwersacji i wiadomości
-    console.log(`Konwersacja z: ${conversationUserName}`);
+    console.log(`Konwersacja prywatna z: ${conversationUserName}`);
     console.log(`Wiadomość od: ${userName}`);
     console.log('Treść:', event.text);
 });
