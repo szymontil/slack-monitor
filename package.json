@@ -1,7 +1,7 @@
 {
   "name": "slack-monitor",
   "version": "1.0.0",
-  "main": "monitor.js",
+  "main": "src/index.js",
   "dependencies": {
     "@doist/todoist-api-typescript": "^2.2.0",
     "@slack/bolt": "^3.22.0",
@@ -17,7 +17,7 @@
     "uuid": "^11.0.3"
   },
   "scripts": {
-    "start": "node monitor.js",
+    "start": "node src/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
