@@ -131,12 +131,6 @@ slackEvents.on('message', async (event) => {
 
         console.log(`📩 Nowa wiadomość od: ${senderName}`);
         console.log(`Treść: ${event.text}`);
-
-        // Dodaj kontekst do kolejki przetwarzania
-        await contextQueue.add({
-            channelId: event.channel,
-            contextId: context._id,
-        });
     } catch (error) {
         console.error('❌ Błąd Slack Events API:', error);
     }
@@ -148,8 +142,8 @@ contextQueue.process(async (job) => {
     console.log(`🔄 Przetwarzanie kontekstu z kanału: ${channelId}`);
 
     const context = await Context.findById(contextId).populate('messages');
-    if (!context) {
-        console.error(`❌ Kontekst o ID ${contextId} nie istnieje`);
+    if (!context || context.messages.length === 0) {
+        console.error(`❌ Kontekst o ID ${contextId} nie istnieje lub jest pusty`);
         return;
     }
 
@@ -187,8 +181,13 @@ contextQueue.process(async (job) => {
 
 // Wyodrębnianie zadania z odpowiedzi OpenAI
 function extractTask(response) {
+    console.log('🔍 Odpowiedź OpenAI:', response);
+
     const match = response.match(/zadanie: (.+)/i);
-    return match ? match[1].trim() : null;
+    const task = match ? match[1].trim() : null;
+
+    console.log('📌 Wykryte zadanie:', task);
+    return task;
 }
 
 // Dodawanie zadania do Todoist
@@ -200,6 +199,8 @@ async function addTaskToTodoist(task) {
             content: task,
             due_string: 'today',
         };
+
+        console.log('📤 Dane przesyłane do Todoist:', todoistData);
 
         const response = await axios.post('https://api.todoist.com/rest/v2/tasks', todoistData, {
             headers: {
@@ -220,8 +221,8 @@ cron.schedule('*/1 * * * *', async () => {
     const now = dayjs();
 
     const inactiveContexts = await Context.find({
-        lastActivity: { $lte: now.subtract(5, 'minute').toDate(), $gte: appStartTime },
-        processed: false,
+        lastActivity: { $lte: now.subtract(5, 'minute').toDate() }, // Nieaktywny od 5 minut
+        processed: false, // Jeszcze nieprzetworzony
     });
 
     for (const context of inactiveContexts) {
