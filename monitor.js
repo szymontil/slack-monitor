@@ -6,9 +6,11 @@ const Queue = require('bull');
 const dotenv = require('dotenv');
 const cron = require('node-cron');
 const axios = require('axios');
-const dayjs = require('dayjs');
 
 dotenv.config();
+
+// Czas uruchomienia aplikacji
+const appStartTime = Date.now();
 
 // Wymagane zmienne środowiskowe
 const requiredEnvVars = [
@@ -20,7 +22,6 @@ const requiredEnvVars = [
   'REDIS_URL',
 ];
 const missingVars = requiredEnvVars.filter((varName) => !process.env[varName]);
-
 if (missingVars.length > 0) {
   console.error('❌ Brak wymaganych zmiennych środowiskowych:', missingVars);
   process.exit(1);
@@ -110,9 +111,60 @@ async function addMessageToContext(channelId, message) {
   }
 }
 
-async function processContext(channelId, contextId) {
+// Obsługa wiadomości Slack
+slackEvents.on('message', async (event) => {
+  try {
+    if (!event.channel.startsWith('D') || event.bot_id) return;
+
+    const messageTimestamp = parseFloat(event.ts) * 1000;
+
+    // Ignoruj wiadomości sprzed uruchomienia aplikacji
+    if (messageTimestamp < appStartTime) {
+      console.log(`⏩ Pominięto starą wiadomość: ${event.text}`);
+      return;
+    }
+
+    const senderInfo = await slackClient.users.info({ user: event.user });
+    const senderName = senderInfo.user.real_name;
+
+    console.log(`📩 Nowa wiadomość od: ${senderName}`);
+    console.log(`Treść: ${event.text}`);
+
+    const message = await new Message({
+      channelId: event.channel,
+      senderName,
+      text: event.text,
+      timestamp: new Date(messageTimestamp),
+      files: event.files ? await Promise.all(event.files.map(processSlackFile)) : [],
+    }).save();
+
+    await addMessageToContext(event.channel, message);
+    console.log(`✅ Wiadomość zapisana i dodana do kontekstu: ${event.channel}`);
+  } catch (error) {
+    console.error('❌ Błąd podczas obsługi wiadomości:', error);
+  }
+});
+
+// Harmonogram sprawdzania nieaktywnych kontekstów
+cron.schedule('*/10 * * * *', async () => {
+  const inactiveContexts = await Context.find({
+    lastActivity: { $lte: new Date(Date.now() - 5 * 60 * 1000) },
+  });
+
+  for (const context of inactiveContexts) {
+    await contextQueue.add({ channelId: context.channelId, contextId: context._id });
+  }
+});
+
+// Obsługa kolejki przetwarzania kontekstów
+contextQueue.process(async (job) => {
+  const { channelId, contextId } = job.data;
   const context = await Context.findById(contextId).populate('messages');
-  if (!context) return;
+
+  if (!context) {
+    console.log(`⚠️ Kontekst ${contextId} nie istnieje.`);
+    return;
+  }
 
   const messages = context.messages
     .map((msg) => `${msg.senderName}: ${msg.text}`)
@@ -143,49 +195,9 @@ async function processContext(channelId, contextId) {
     );
     console.log('✅ Zadanie zostało dodane do Todoist.');
   }
+
   await Context.deleteOne({ _id: contextId });
-}
-
-// Obsługa wiadomości Slack
-slackEvents.on('message', async (event) => {
-  try {
-    if (!event.channel.startsWith('D') || event.bot_id) return;
-
-    const senderInfo = await slackClient.users.info({ user: event.user });
-    const senderName = senderInfo.user.real_name;
-
-    console.log(`📩 Nowa wiadomość od: ${senderName}`);
-    console.log(`Treść: ${event.text}`);
-
-    const message = await new Message({
-      channelId: event.channel,
-      senderName,
-      text: event.text,
-      timestamp: new Date(parseFloat(event.ts) * 1000),
-      files: event.files ? await Promise.all(event.files.map(processSlackFile)) : [],
-    }).save();
-
-    await addMessageToContext(event.channel, message);
-    console.log(`✅ Wiadomość zapisana i dodana do kontekstu: ${event.channel}`);
-  } catch (error) {
-    console.error('❌ Błąd podczas obsługi wiadomości:', error);
-  }
-});
-
-// Harmonogram czyszczenia i przetwarzania
-cron.schedule('*/10 * * * *', async () => {
-  const inactiveContexts = await Context.find({
-    lastActivity: { $lte: new Date(Date.now() - 5 * 60 * 1000) },
-  });
-
-  for (const context of inactiveContexts) {
-    await contextQueue.add({ channelId: context.channelId, contextId: context._id });
-  }
-});
-
-contextQueue.process(async (job) => {
-  const { channelId, contextId } = job.data;
-  await processContext(channelId, contextId);
+  console.log(`✅ Kontekst ${contextId} został przetworzony i usunięty.`);
 });
 
 // Czyszczenie bazy danych
