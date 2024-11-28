@@ -10,6 +10,10 @@ const dayjs = require('dayjs');
 
 dotenv.config();
 
+// Znacznik czasu uruchomienia aplikacji
+const appStartTime = new Date();
+console.log(`🕒 Aplikacja uruchomiona: ${appStartTime}`);
+
 // Sprawdzanie wymaganych zmiennych środowiskowych
 const requiredEnvVars = [
     'SLACK_SIGNING_SECRET',
@@ -55,6 +59,7 @@ const contextSchema = new Schema({
     channelId: { type: String, required: true, unique: true },
     messages: [{ type: Schema.Types.ObjectId, ref: 'Message' }],
     lastActivity: { type: Date, required: true },
+    processed: { type: Boolean, default: false }, // Flaga przetworzenia
 });
 
 const Message = mongoose.model('Message', messageSchema);
@@ -72,10 +77,10 @@ const contextQueue = new Queue('contextQueue', {
         attempts: 3,
         backoff: {
             type: 'exponential',
-            delay: 1000
+            delay: 1000,
         },
         removeOnComplete: true,
-        removeOnFail: false
+        removeOnFail: false,
     },
 });
 
@@ -99,7 +104,11 @@ app.use(express.json());
 // Obsługa wiadomości
 slackEvents.on('message', async (event) => {
     try {
-        if (event.bot_id || !event.text) return;
+        // Ignoruj boty i wiadomości starsze niż czas uruchomienia aplikacji
+        if (event.bot_id || !event.text || new Date(parseFloat(event.ts) * 1000) < appStartTime) {
+            console.log('📤 Ignorowanie starej wiadomości lub wiadomości od bota.');
+            return;
+        }
 
         const senderInfo = await slackClient.users.info({ user: event.user });
         const senderName = senderInfo.user.real_name;
@@ -168,6 +177,9 @@ contextQueue.process(async (job) => {
         } else {
             console.log('ℹ️ Brak zadań do dodania.');
         }
+
+        // Oznaczamy kontekst jako przetworzony
+        await Context.findByIdAndUpdate(context._id, { processed: true });
     } catch (error) {
         console.error('❌ Błąd w przetwarzaniu OpenAI:', error.response?.data || error.message);
     }
@@ -208,7 +220,8 @@ cron.schedule('*/1 * * * *', async () => {
     const now = dayjs();
 
     const inactiveContexts = await Context.find({
-        lastActivity: { $lte: now.subtract(5, 'minute').toDate() }
+        lastActivity: { $lte: now.subtract(5, 'minute').toDate(), $gte: appStartTime },
+        processed: false,
     });
 
     for (const context of inactiveContexts) {
@@ -217,6 +230,8 @@ cron.schedule('*/1 * * * *', async () => {
             channelId: context.channelId,
             contextId: context._id,
         });
+
+        await Context.findByIdAndUpdate(context._id, { processed: true });
     }
 });
 
