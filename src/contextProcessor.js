@@ -14,8 +14,7 @@ async function processContext(context) {
         console.log('📋 Wynik analizy OpenAI:', JSON.stringify(analysis, null, 2));
     } catch (error) {
         console.error('❌ Błąd podczas analizy OpenAI:', error.message);
-        console.log('ℹ️ Wynik analizy OpenAI: Brak zadań przypisanych do Szymona Tila.');
-        return;
+        return; // Przerwij działanie w przypadku błędu analizy
     }
 
     // Obsługa sytuacji, gdy nie znaleziono żadnych zadań
@@ -53,7 +52,6 @@ async function processContext(context) {
             }
         }
     } else {
-        // Obsługa nieoczekiwanego formatu wyniku analizy
         console.error('❌ Nieoczekiwany format analizy:', JSON.stringify(analysis, null, 2));
     }
 }
