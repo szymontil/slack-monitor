@@ -19,7 +19,7 @@ if (missingVars.length > 0) {
 
 // Połączenie z MongoDB
 mongoose
-    .connect(process.env.MONGO_URL)
+    .connect(process.env.MONGO_URL, { useNewUrlParser: true, useUnifiedTopology: true })
     .then(() => console.log('✅ Połączono z MongoDB'))
     .catch((err) => {
         console.error('❌ Błąd połączenia z MongoDB:', err);
@@ -34,6 +34,7 @@ const messageSchema = new mongoose.Schema({
 });
 
 const contextSchema = new mongoose.Schema({
+    channelId: { type: String, unique: true },
     participants: [String],
     lastActivity: Date,
     messages: [messageSchema],
@@ -49,11 +50,42 @@ const slackClient = new WebClient(process.env.SLACK_USER_TOKEN);
 const app = express();
 app.use('/slack/events', slackEvents.expressMiddleware());
 
+// Funkcja pomocnicza do ustalenia uczestników rozmowy
+async function getConversationParticipants(event) {
+    try {
+        // Informacje o nadawcy
+        const senderInfo = await slackClient.users.info({ user: event.user });
+        if (!senderInfo.ok) throw new Error(`Nie można pobrać informacji o użytkowniku. User ID: ${event.user}`);
+        const senderName = senderInfo.user.real_name || senderInfo.user.name;
+
+        // Informacje o odbiorcy
+        const conversationInfo = await slackClient.conversations.info({ channel: event.channel });
+        if (!conversationInfo.ok) throw new Error(`Nie można pobrać informacji o kanale: ${event.channel}`);
+        const recipientId = conversationInfo.channel.user;
+
+        if (recipientId === event.user) {
+            // Jeśli nadawca i odbiorca to ten sam użytkownik, to druga osoba to Ty
+            const botInfo = await slackClient.auth.test();
+            const recipientName = botInfo.user || 'Ty';
+            return { senderName, recipientName };
+        } else {
+            // Pobierz informacje o drugiej osobie
+            const recipientInfo = await slackClient.users.info({ user: recipientId });
+            if (!recipientInfo.ok) throw new Error(`Nie można pobrać informacji o odbiorcy. User ID: ${recipientId}`);
+            const recipientName = recipientInfo.user.real_name || recipientInfo.user.name;
+            return { senderName, recipientName };
+        }
+    } catch (error) {
+        console.error('❌ Błąd podczas pobierania uczestników rozmowy:', error.message);
+        return null;
+    }
+}
+
 // Obsługa wiadomości
 slackEvents.on('message', async (event) => {
     try {
-        if (!event.channel.startsWith('D')) {
-            console.log(`ℹ️ Wiadomość zignorowana, nie jest to wiadomość prywatna. Kanał: ${event.channel}`);
+        if (!event.channel || !event.channel.startsWith('D')) {
+            console.log(`ℹ️ Wiadomość zignorowana, nie jest to wiadomość prywatna. Kanał: ${event.channel || 'brak'}`);
             return;
         }
 
@@ -62,27 +94,20 @@ slackEvents.on('message', async (event) => {
             return;
         }
 
-        // Pobranie informacji o nadawcy
-        const senderInfo = await slackClient.users.info({ user: event.user });
-        if (!senderInfo.ok) throw new Error(`Nie można pobrać informacji o użytkowniku. User ID: ${event.user}`);
-        const senderName = senderInfo.user.real_name || senderInfo.user.name;
+        // Pobranie uczestników rozmowy
+        const participants = await getConversationParticipants(event);
+        if (!participants) return;
 
-        // Pobranie informacji o odbiorcy
-        const conversationInfo = await slackClient.conversations.info({ channel: event.channel });
-        if (!conversationInfo.ok) throw new Error(`Nie można pobrać informacji o kanale: ${event.channel}`);
-        const recipientId = conversationInfo.channel.user;
-        const recipientInfo = await slackClient.users.info({ user: recipientId });
-        if (!recipientInfo.ok) throw new Error(`Nie można pobrać informacji o odbiorcy. User ID: ${recipientId}`);
-        const recipientName = recipientInfo.user.real_name || recipientInfo.user.name;
-
+        const { senderName, recipientName } = participants;
         console.log(`📩 Nowa wiadomość od: ${senderName}`);
         console.log(`Treść: ${event.text}`);
         console.log(`📢 Rozpoczęto nowy kontekst: Rozmowa między: ${senderName} i ${recipientName}`);
 
         // Obsługa kontekstu
-        let context = await Context.findOne({ participants: { $all: [senderName, recipientName] } });
+        let context = await Context.findOne({ channelId: event.channel });
         if (!context) {
             context = new Context({
+                channelId: event.channel,
                 participants: [senderName, recipientName],
                 lastActivity: new Date(),
                 messages: [],
@@ -128,7 +153,7 @@ setInterval(async () => {
     } catch (error) {
         console.error('❌ Błąd podczas przetwarzania zakończonych kontekstów:', error.message);
     }
-}, CONTEXT_TIMEOUT);
+}, 60 * 1000); // Sprawdzanie co minutę
 
 // Start serwera
 app.listen(PORT, () => {
