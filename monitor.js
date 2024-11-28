@@ -27,7 +27,7 @@ const requiredEnvVars = [
     'OPENAI_API_KEY',
     'TODOIST_API_KEY',
     'MONGO_URL',
-    'REDIS_CONNECTION',  // Zmieniona zmienna
+    'REDIS_URL', 
 ];
 
 // Sprawdzenie zmiennych środowiskowych
@@ -98,7 +98,7 @@ const slackClient = new WebClient(process.env.SLACK_USER_TOKEN);
 
 // Konfiguracja kolejki Redis z użyciem zmiennej referencyjnej
 const contextQueue = new Queue('contextQueue', {
-    redis: process.env.REDIS_CONNECTION,  // Używamy nowej zmiennej
+    redis: process.env.REDIS_URL,  // Zmieniamy z REDIS_CONNECTION na REDIS_URL
     defaultJobOptions: {
         attempts: 3,
         backoff: {
