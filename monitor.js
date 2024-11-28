@@ -4,13 +4,13 @@ const { WebClient } = require('@slack/web-api');
 const mongoose = require('mongoose');
 const Queue = require('bull');
 const dotenv = require('dotenv');
-const axios = require('axios');
 const cron = require('node-cron');
+const axios = require('axios');
 const dayjs = require('dayjs');
 
 dotenv.config();
 
-// Konfiguracja środowiska
+// Wymagane zmienne środowiskowe
 const requiredEnvVars = [
   'SLACK_SIGNING_SECRET',
   'SLACK_USER_TOKEN',
@@ -25,15 +25,6 @@ if (missingVars.length > 0) {
   console.error('❌ Brak wymaganych zmiennych środowiskowych:', missingVars);
   process.exit(1);
 }
-
-// Połączenie z MongoDB
-mongoose
-  .connect(process.env.MONGO_URL)
-  .then(() => console.log('✅ Połączono z MongoDB'))
-  .catch((err) => {
-    console.error('❌ Błąd połączenia z MongoDB:', err);
-    process.exit(1);
-  });
 
 // Modele MongoDB
 const messageSchema = new mongoose.Schema({
@@ -62,16 +53,31 @@ const contextSchema = new mongoose.Schema({
 const Message = mongoose.model('Message', messageSchema);
 const Context = mongoose.model('Context', contextSchema);
 
-// Inicjalizacja Slack i Redis
+// Inicjalizacja aplikacji
+const app = express();
 const slackEvents = createEventAdapter(process.env.SLACK_SIGNING_SECRET);
 const slackClient = new WebClient(process.env.SLACK_USER_TOKEN);
-const contextQueue = new Queue('contextQueue', process.env.REDIS_URL);
+const contextQueue = new Queue('contextQueue', { redis: process.env.REDIS_URL });
 
-contextQueue.on('completed', (job) => {
-  console.log(`✅ Zadanie ${job.id} zakończone sukcesem.`);
+// Middleware Slack Events API
+app.use('/slack/events', slackEvents.expressMiddleware());
+console.log('✅ Slack Events API middleware uruchomione.');
+
+// Połączenie z MongoDB
+mongoose
+  .connect(process.env.MONGO_URL)
+  .then(() => console.log('✅ Połączono z MongoDB'))
+  .catch((err) => {
+    console.error('❌ Błąd połączenia z MongoDB:', err);
+    process.exit(1);
+  });
+
+// Redis - debugowanie połączenia
+contextQueue.client.on('ready', () => {
+  console.log('✅ Redis połączono i gotowe do użycia.');
 });
-contextQueue.on('failed', (job, err) => {
-  console.error(`❌ Zadanie ${job.id} zakończyło się błędem:`, err);
+contextQueue.client.on('error', (err) => {
+  console.error('❌ Redis - błąd połączenia:', err);
 });
 
 // Funkcje pomocnicze
@@ -84,18 +90,23 @@ async function processSlackFile(file) {
 }
 
 async function addMessageToContext(channelId, message) {
-  const context = await Context.findOne({ channelId });
-  if (context) {
-    context.messages.push(message._id);
-    context.lastActivity = new Date();
-    await context.save();
-  } else {
-    await new Context({
-      channelId,
-      contextStartTime: new Date(),
-      messages: [message._id],
-      lastActivity: new Date(),
-    }).save();
+  try {
+    const context = await Context.findOne({ channelId });
+    if (context) {
+      context.messages.push(message._id);
+      context.lastActivity = new Date();
+      await context.save();
+    } else {
+      console.log(`📢 Rozpoczęto nowy kontekst: Rozmowa z: ${message.senderName}`);
+      await new Context({
+        channelId,
+        contextStartTime: new Date(),
+        messages: [message._id],
+        lastActivity: new Date(),
+      }).save();
+    }
+  } catch (error) {
+    console.error('❌ Błąd przy dodawaniu wiadomości do kontekstu:', error);
   }
 }
 
@@ -137,20 +148,28 @@ async function processContext(channelId, contextId) {
 
 // Obsługa wiadomości Slack
 slackEvents.on('message', async (event) => {
-  if (!event.channel.startsWith('D') || event.bot_id) return;
+  try {
+    if (!event.channel.startsWith('D') || event.bot_id) return;
 
-  const senderInfo = await slackClient.users.info({ user: event.user });
-  const senderName = senderInfo.user.real_name;
+    const senderInfo = await slackClient.users.info({ user: event.user });
+    const senderName = senderInfo.user.real_name;
 
-  const message = await new Message({
-    channelId: event.channel,
-    senderName,
-    text: event.text,
-    timestamp: new Date(parseFloat(event.ts) * 1000),
-    files: event.files ? await Promise.all(event.files.map(processSlackFile)) : [],
-  }).save();
+    console.log(`📩 Nowa wiadomość od: ${senderName}`);
+    console.log(`Treść: ${event.text}`);
 
-  await addMessageToContext(event.channel, message);
+    const message = await new Message({
+      channelId: event.channel,
+      senderName,
+      text: event.text,
+      timestamp: new Date(parseFloat(event.ts) * 1000),
+      files: event.files ? await Promise.all(event.files.map(processSlackFile)) : [],
+    }).save();
+
+    await addMessageToContext(event.channel, message);
+    console.log(`✅ Wiadomość zapisana i dodana do kontekstu: ${event.channel}`);
+  } catch (error) {
+    console.error('❌ Błąd podczas obsługi wiadomości:', error);
+  }
 });
 
 // Harmonogram czyszczenia i przetwarzania
@@ -177,7 +196,8 @@ cron.schedule('0 0 * * *', async () => {
   console.log('🧹 Baza danych została wyczyszczona.');
 });
 
-// Inicjalizacja serwera
-const app = express();
-app.use('/slack/events', slackEvents.expressMiddleware());
-app.listen(process.env.PORT || 8080, () => console.log('🚀 Aplikacja działa na porcie 8080'));
+// Start serwera
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => {
+  console.log(`🚀 Aplikacja działa na porcie ${PORT}`);
+});
