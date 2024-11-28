@@ -152,7 +152,7 @@ contextQueue.process(async (job) => {
     try {
         console.log(`📝 Przesyłanie kontekstu do OpenAI dla kanału: ${channelId}`);
         const openAIResponse = await axios.post('https://api.openai.com/v1/chat/completions', {
-            model: 'gpt-4',
+            model: 'gpt-3.5-turbo',
             messages: [
                 { role: 'system', content: 'Jesteś asystentem pomagającym identyfikować zadania.' },
                 { role: 'user', content: `Oto zapis rozmowy:\n\n${messagesText}\n\nCzy istnieją jakieś zadania do wykonania? Jeśli tak, opisz je.` },
