@@ -58,28 +58,27 @@ async function getConversationParticipants(event) {
 
         const botInfo = await slackClient.auth.test();
         const botId = botInfo.user_id;
-        const botName = botInfo.user;
+        const botName = 'Szymon Til'; // Twoja wyświetlana nazwa
 
         if (event.user === botId) {
-            // Jeśli bot jest nadawcą
-            return { senderName: botName, recipientName: senderName };
-        }
+            // Jeśli Ty jesteś nadawcą, znajdź odbiorcę
+            const conversationInfo = await slackClient.conversations.info({ channel: event.channel });
+            const recipientId = conversationInfo.channel.user;
 
-        const conversationInfo = await slackClient.conversations.info({ channel: event.channel });
-        const recipientId = conversationInfo.channel.user;
-
-        if (recipientId === botId) {
-            return { senderName, recipientName: botName };
-        } else {
             const recipientInfo = await slackClient.users.info({ user: recipientId });
             const recipientName = recipientInfo.user.real_name || recipientInfo.user.name;
-            return { senderName, recipientName };
+
+            return { senderName: botName, recipientName };
+        } else {
+            // Jeśli druga osoba jest nadawcą, Ty jesteś odbiorcą
+            return { senderName, recipientName: botName };
         }
     } catch (error) {
         console.error('❌ Błąd podczas pobierania uczestników rozmowy:', error.message);
         return { senderName: 'Nieznany', recipientName: 'Nieznany' };
     }
 }
+
 
 // Funkcja obsługi wiadomości
 slackEvents.on('message', async (event) => {
@@ -116,7 +115,8 @@ slackEvents.on('message', async (event) => {
                 participants: [senderName, recipientName],
             });
             await newContext.save();
-            console.log(`📢 Rozpoczęto nowy kontekst: Rozmowa między: ${senderName} i ${recipientName}`);
+            console.log(`📢 Rozpoczęto nowy kontekst: Rozmowa między: Szymon Til i ${recipientName}`);
+
         }
 
         console.log(`📩 Nowa wiadomość od: ${senderName}\nTreść: ${event.text}`);
