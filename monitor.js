@@ -175,9 +175,8 @@ async function checkRedisConnection() {
 }
 
 // Okresowe sprawdzanie stanu Redis
-setInterval(async () => {
-    await checkRedisConnection();
-}, 60000); // co minutę
+await checkRedisConnection(); // Sprawdzamy połączenie tylko raz na starcie
+
 
 // Sprawdź połączenie przy starcie
 checkRedisConnection();
@@ -392,14 +391,14 @@ cron.schedule('0 0 * * *', async () => {
 });
 
 // Harmonogram sprawdzania nieaktywnych kontekstów co 10 minut
-cron.schedule('*/10 * * * *', async () => {
+cron.schedule('*/1 * * * *', async () => {
     console.log('🕒 Sprawdzanie nieaktywnych kontekstów...');
     const now = dayjs();
 
     try {
         // Znajdź konteksty nieaktywne od godziny
         const inactiveContexts = await Context.find({ 
-            lastActivity: { $lte: now.subtract(60, 'minute').toDate() } 
+            lastActivity: { $lte: now.subtract(5, 'minute').toDate() } 
         });
 
         for (const context of inactiveContexts) {
