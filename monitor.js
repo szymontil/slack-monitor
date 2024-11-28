@@ -27,7 +27,7 @@ const requiredEnvVars = [
     'OPENAI_API_KEY',
     'TODOIST_API_KEY',
     'MONGO_URL',
-    'REDIS_URL',  // Zamiast REDISHOST i REDISPORT używamy REDIS_URL
+    'REDIS_CONNECTION',  // Zmieniona zmienna
 ];
 
 // Sprawdzenie zmiennych środowiskowych
@@ -96,9 +96,9 @@ const slackEvents = createEventAdapter(process.env.SLACK_SIGNING_SECRET);
 const app = express();
 const slackClient = new WebClient(process.env.SLACK_USER_TOKEN);
 
-// Konfiguracja kolejki Redis dla Railway
+// Konfiguracja kolejki Redis z użyciem zmiennej referencyjnej
 const contextQueue = new Queue('contextQueue', {
-    redis: process.env.REDIS_URL, // Używamy pełnego URL zamiast osobnych host/port
+    redis: process.env.REDIS_CONNECTION,  // Używamy nowej zmiennej
     defaultJobOptions: {
         attempts: 3,
         backoff: {
@@ -112,6 +112,27 @@ const contextQueue = new Queue('contextQueue', {
         max: 1000,
         duration: 5000
     }
+});
+
+// Lepsze logowanie stanu połączenia
+contextQueue.client.on('connect', () => {
+    console.log('✅ Redis - próba połączenia');
+});
+
+contextQueue.client.on('ready', () => {
+    console.log('✅ Redis - połączono i gotowe do użycia');
+});
+
+contextQueue.client.on('error', (err) => {
+    console.error('❌ Redis - błąd połączenia:', err);
+});
+
+contextQueue.client.on('end', () => {
+    console.log('⚠️ Redis - połączenie zakończone');
+});
+
+contextQueue.client.on('reconnecting', () => {
+    console.log('🔄 Redis - ponowne łączenie');
 });
 
 // Konfiguracja obsługi błędów i monitorowania
