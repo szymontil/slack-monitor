@@ -1,11 +1,14 @@
 const axios = require('axios');
 
 async function addTaskToTodoist(taskTitle) {
+    const taskData = {
+        content: taskTitle,
+        due_string: 'today', // Optional: Adjust the due date logic here
+    };
+
     try {
-        const response = await axios.post('https://api.todoist.com/rest/v2/tasks', {
-            content: taskTitle,
-            due_string: 'today', // Optional: You can adjust the due date logic here
-        }, {
+        console.log('📤 Wysyłanie zadania do Todoist:', taskData);
+        const response = await axios.post('https://api.todoist.com/rest/v2/tasks', taskData, {
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${process.env.TODOIST_API_KEY}`,

@@ -93,7 +93,7 @@ ${fullContext}
         });
 
         const result = response.data.choices[0].message.content.trim();
-        console.log(`📜 OpenAI Analysis Result:\n${result}`);
+        cconsole.log(`📜 OpenAI Analysis Result:\n${JSON.stringify(parsedResult, null, 2)}`);
 
         const parsedResult = JSON.parse(result);
 
