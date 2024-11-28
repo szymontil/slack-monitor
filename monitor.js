@@ -98,7 +98,7 @@ const slackClient = new WebClient(process.env.SLACK_USER_TOKEN);
 
 // Konfiguracja kolejki Redis z użyciem zmiennej referencyjnej
 const contextQueue = new Queue('contextQueue', {
-    redis: process.env.REDIS_URL,
+    redis: process.env.REDIS_URL,  // Zmieniamy z REDIS_CONNECTION na REDIS_URL
     defaultJobOptions: {
         attempts: 3,
         backoff: {
@@ -175,8 +175,9 @@ async function checkRedisConnection() {
 }
 
 // Okresowe sprawdzanie stanu Redis
-await checkRedisConnection(); // Sprawdzamy połączenie tylko raz na starcie
-
+setInterval(async () => {
+    await checkRedisConnection();
+}, 60000); // co minutę
 
 // Sprawdź połączenie przy starcie
 checkRedisConnection();
@@ -391,14 +392,14 @@ cron.schedule('0 0 * * *', async () => {
 });
 
 // Harmonogram sprawdzania nieaktywnych kontekstów co 10 minut
-cron.schedule('*/1 * * * *', async () => {
+cron.schedule('*/10 * * * *', async () => {
     console.log('🕒 Sprawdzanie nieaktywnych kontekstów...');
     const now = dayjs();
 
     try {
         // Znajdź konteksty nieaktywne od godziny
         const inactiveContexts = await Context.find({ 
-            lastActivity: { $lte: now.subtract(5, 'minute').toDate() } 
+            lastActivity: { $lte: now.subtract(60, 'minute').toDate() } 
         });
 
         for (const context of inactiveContexts) {
