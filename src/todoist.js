@@ -5,17 +5,16 @@ async function addTaskToTodoist(taskContent) {
         const response = await axios.post('https://api.todoist.com/rest/v2/tasks', {
             content: taskContent,
             due_string: 'today',
-            priority: 3,
         }, {
             headers: {
-                'Authorization': `Bearer ${process.env.TODOIST_API_KEY}`,
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.TODOIST_API_KEY}`,
             },
         });
 
-        console.log('✅ Zadanie zostało dodane do Todoist:', response.data);
+        console.log('✅ Zadanie dodane do Todoist:', response.data);
     } catch (error) {
-        console.error('❌ Błąd podczas dodawania zadania do Todoist:', error.response ? error.response.data : error.message);
+        console.error('❌ Błąd podczas dodawania zadania do Todoist:', error.message);
     }
 }
 

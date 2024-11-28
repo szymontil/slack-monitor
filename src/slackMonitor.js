@@ -1,8 +1,7 @@
 const { createEventAdapter } = require('@slack/events-api');
 const { WebClient } = require('@slack/web-api');
-const { analyzeContextWithOpenAI } = require('./openAI');
-const { addTaskToTodoist } = require('./todoist');
 const { CONTEXT_TIMEOUT } = require('./config');
+const { processContext } = require('./contextProcessor');
 
 const slackClient = new WebClient(process.env.SLACK_USER_TOKEN);
 const slackEvents = createEventAdapter(process.env.SLACK_SIGNING_SECRET);
@@ -66,17 +65,10 @@ async function checkClosedContexts() {
             console.log(`📢 Kontekst dla ${context.senderName} i ${context.recipientName} został zamknięty.`);
             console.log('Pełny kontekst:\n' + context.messages.join('\n'));
 
-            const fullContext = context.messages.join('\n');
-            const analysis = await analyzeContextWithOpenAI(fullContext);
-            console.log(`📜 Analiza OpenAI:\n${analysis}`);
+            // Przekazanie zamkniętego kontekstu do modułu obsługującego przetwarzanie
+            await processContext(context);
 
-            if (/Brak zadań do wykonania/i.test(analysis)) {
-                console.log('ℹ️ Nie znaleziono zadań w tej rozmowie.');
-            } else {
-                console.log(`✅ Znaleziono zadanie: ${analysis}`);
-                await addTaskToTodoist(analysis);
-            }
-
+            // Usunięcie kontekstu
             delete contexts[channelId];
         }
     }
