@@ -10,14 +10,18 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 // Połączenie z MongoDB
-mongoose.connect(process.env.MONGO_URL, { useNewUrlParser: true, useUnifiedTopology: true })
+mongoose.connect(process.env.MONGO_URL)
     .then(() => console.log('✅ Połączono z MongoDB'))
     .catch(err => console.error('❌ Błąd połączenia z MongoDB:', err));
+
 
 // Middleware Slack
 app.use('/slack/events', slackEvents.expressMiddleware());
 
 // Interwał sprawdzania zamkniętych kontekstów
-setInterval(checkClosedContexts, 60 * 1000);
+const { CHECK_INTERVAL } = require('./config');
+
+setInterval(checkClosedContexts, CHECK_INTERVAL); // co 5 minut
+
 
 app.listen(PORT, () => console.log(`🚀 Aplikacja działa na porcie ${PORT}`));

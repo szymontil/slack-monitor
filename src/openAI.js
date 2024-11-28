@@ -1,14 +1,14 @@
 const axios = require('axios');
 
-async function sendToOpenAI(fullContext) {
+async function analyzeContextWithOpenAI(fullContext) {
     try {
         const response = await axios.post('https://api.openai.com/v1/chat/completions', {
             model: 'gpt-3.5-turbo',
             messages: [
-                { role: 'system', content: 'Wykonaj podsumowanie rozmowy.' },
+                { role: 'system', content: 'Jesteś asystentem pomagającym w identyfikacji zadań z kontekstu rozmowy. Jeśli znajdziesz zadanie, sprecyzuj je w jednym zdaniu. Jeśli nie ma zadań, napisz "Brak zadań do wykonania".' },
                 { role: 'user', content: `Pełny kontekst rozmowy:\n\n${fullContext}` }
             ],
-            max_tokens: 150,
+            max_tokens: 50, // Ustawiamy limit na precyzyjne odpowiedzi
             temperature: 0.5,
         }, {
             headers: {
@@ -17,11 +17,12 @@ async function sendToOpenAI(fullContext) {
             },
         });
 
-        return response.data.choices[0].message.content.trim();
+        const analysis = response.data.choices[0].message.content.trim();
+        return analysis;
     } catch (error) {
-        console.error('❌ Błąd podczas wysyłania kontekstu do OpenAI:', error.message);
-        return '❌ Nie udało się wygenerować podsumowania.';
+        console.error('❌ Błąd podczas analizy kontekstu przez OpenAI:', error.message);
+        return '❌ Nie udało się przeanalizować kontekstu.';
     }
 }
 
-module.exports = { sendToOpenAI };
+module.exports = { analyzeContextWithOpenAI };
