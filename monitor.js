@@ -147,15 +147,22 @@ contextQueue.process(async (job) => {
         return;
     }
 
+    // Budowanie kontekstu i ograniczanie długości wiadomości
     const messagesText = context.messages.map(msg => `${msg.senderName}: ${msg.text}`).join('\n');
+    const maxTokenLength = 3000; // Maksymalna długość wiadomości w znakach
+    const trimmedMessagesText = messagesText.length > maxTokenLength
+        ? messagesText.slice(-maxTokenLength) // Przytnij do ostatnich znaków
+        : messagesText;
 
     try {
         console.log(`📝 Przesyłanie kontekstu do OpenAI dla kanału: ${channelId}`);
+        console.log('📤 Przesyłane dane:', trimmedMessagesText);
+
         const openAIResponse = await axios.post('https://api.openai.com/v1/chat/completions', {
             model: 'gpt-3.5-turbo',
             messages: [
                 { role: 'system', content: 'Jesteś asystentem pomagającym identyfikować zadania.' },
-                { role: 'user', content: `Oto zapis rozmowy:\n\n${messagesText}\n\nCzy istnieją jakieś zadania do wykonania? Jeśli tak, opisz je.` },
+                { role: 'user', content: `Oto zapis rozmowy:\n\n${trimmedMessagesText}\n\nCzy istnieją jakieś zadania do wykonania? Jeśli tak, opisz je.` },
             ],
         }, {
             headers: {
