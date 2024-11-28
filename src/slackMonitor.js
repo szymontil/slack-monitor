@@ -1,37 +1,34 @@
+const { createEventAdapter } = require('@slack/events-api');
+const { WebClient } = require('@slack/web-api');
 const { analyzeContextWithOpenAI } = require('./openAI');
 const { addTaskToTodoist } = require('./todoist');
 const { CONTEXT_TIMEOUT } = require('./config');
-const { createEventAdapter } = require('@slack/events-api');
-const { WebClient } = require('@slack/web-api');
 
 const slackClient = new WebClient(process.env.SLACK_USER_TOKEN);
 const slackEvents = createEventAdapter(process.env.SLACK_SIGNING_SECRET);
 
 let contexts = {};
 
-async function checkClosedContexts() {
-    console.log('🕒 Rozpoczynanie sprawdzania zamkniętych kontekstów...');
-    const now = Date.now();
+// Funkcja do pobierania uczestników rozmowy
+async function getConversationParticipants(event) {
+    try {
+        const senderInfo = await slackClient.users.info({ user: event.user });
+        const senderName = senderInfo.user.real_name || senderInfo.user.name;
 
-    for (const [channelId, context] of Object.entries(contexts)) {
-        if (now - context.lastActivity >= CONTEXT_TIMEOUT) {
-            console.log(`📢 Kontekst dla ${context.senderName} i ${context.recipientName} został zamknięty.`);
-            const fullContext = context.messages.join('\n');
-            console.log('Pełny kontekst:\n' + fullContext);
+        const botInfo = await slackClient.auth.test();
+        const botName = 'Szymon Til';
 
-            // Analiza kontekstu przez OpenAI
-            const analysis = await analyzeContextWithOpenAI(fullContext);
-            console.log(`📜 Analiza OpenAI:\n${analysis}`);
-
-            if (/Brak zadań do wykonania/i.test(analysis)) {
-                console.log('ℹ️ Nie znaleziono zadań w tej rozmowie.');
-            } else {
-                console.log(`✅ Znaleziono zadanie: ${analysis}`);
-                await addTaskToTodoist(analysis); // Dodajemy zadanie do Todoist
-            }
-
-            delete contexts[channelId];
+        if (event.user === botInfo.user_id) {
+            const conversationInfo = await slackClient.conversations.info({ channel: event.channel });
+            const recipientId = conversationInfo.channel.user;
+            const recipientInfo = await slackClient.users.info({ user: recipientId });
+            return { senderName: botName, recipientName: recipientInfo.user.real_name || recipientInfo.user.name };
+        } else {
+            return { senderName, recipientName: botName };
         }
+    } catch (error) {
+        console.error('❌ Błąd podczas pobierania uczestników rozmowy:', error.message);
+        return { senderName: 'Nieznany', recipientName: 'Nieznany' };
     }
 }
 
@@ -58,6 +55,32 @@ slackEvents.on('message', async event => {
         console.error('❌ Błąd obsługi wiadomości:', error.message);
     }
 });
+
+// Sprawdzanie zamkniętych kontekstów
+async function checkClosedContexts() {
+    console.log('🕒 Rozpoczynanie sprawdzania zamkniętych kontekstów...');
+    const now = Date.now();
+
+    for (const [channelId, context] of Object.entries(contexts)) {
+        if (now - context.lastActivity >= CONTEXT_TIMEOUT) {
+            console.log(`📢 Kontekst dla ${context.senderName} i ${context.recipientName} został zamknięty.`);
+            console.log('Pełny kontekst:\n' + context.messages.join('\n'));
+
+            const fullContext = context.messages.join('\n');
+            const analysis = await analyzeContextWithOpenAI(fullContext);
+            console.log(`📜 Analiza OpenAI:\n${analysis}`);
+
+            if (/Brak zadań do wykonania/i.test(analysis)) {
+                console.log('ℹ️ Nie znaleziono zadań w tej rozmowie.');
+            } else {
+                console.log(`✅ Znaleziono zadanie: ${analysis}`);
+                await addTaskToTodoist(analysis);
+            }
+
+            delete contexts[channelId];
+        }
+    }
+}
 
 module.exports = slackEvents;
 module.exports.checkClosedContexts = checkClosedContexts;
