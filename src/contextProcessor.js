@@ -7,15 +7,24 @@ async function processContext(context) {
     const fullContext = context.messages.join('\n');
     console.log('🔄 Przetwarzanie zamkniętego kontekstu...');
 
-    // Analiza za pomocą OpenAI
-    const analysis = await analyzeContextWithOpenAI(fullContext);
-
-    // Obsługa wyniku analizy
-    if (analysis.is_task === "no") {
+    let analysis;
+    try {
+        // Analiza za pomocą OpenAI
+        analysis = await analyzeContextWithOpenAI(fullContext);
+        console.log('📋 Wynik analizy OpenAI:', JSON.stringify(analysis, null, 2));
+    } catch (error) {
+        console.error('❌ Błąd podczas analizy OpenAI:', error.message);
         console.log('ℹ️ Wynik analizy OpenAI: Brak zadań przypisanych do Szymona Tila.');
         return;
-    } 
+    }
 
+    // Obsługa sytuacji, gdy nie znaleziono żadnych zadań
+    if (analysis.is_task === "no" || (Array.isArray(analysis) && analysis.length === 0)) {
+        console.log('ℹ️ Wynik analizy OpenAI: Brak zadań przypisanych do Szymona Tila.');
+        return;
+    }
+
+    // Obsługa wyników analizy jako tablicy z zadaniami
     if (Array.isArray(analysis)) {
         console.log(`✅ Znaleziono ${analysis.length} zadanie(-a/-ń):`);
         for (const task of analysis) {
@@ -44,6 +53,7 @@ async function processContext(context) {
             }
         }
     } else {
+        // Obsługa nieoczekiwanego formatu wyniku analizy
         console.error('❌ Nieoczekiwany format analizy:', JSON.stringify(analysis, null, 2));
     }
 }
