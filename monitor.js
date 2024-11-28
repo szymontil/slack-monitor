@@ -1,41 +1,51 @@
-const { createEventAdapter } = require('@slack/events-api');
-const express = require('express');
+// Importy
+const axios = require('axios');
 const { WebClient } = require('@slack/web-api');
+const express = require('express');
+const { createEventAdapter } = require('@slack/events-api');
 const mongoose = require('mongoose');
+const cron = require('node-cron');
 const dotenv = require('dotenv');
 
+// Konfiguracja środowiska
 dotenv.config();
 
-// Konfiguracja aplikacji
-const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
-const SLACK_USER_TOKEN = process.env.SLACK_USER_TOKEN;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const MONGO_URL = process.env.MONGO_URL;
-const TODOIST_API_KEY = process.env.TODOIST_API_KEY;
+const {
+  SLACK_SIGNING_SECRET,
+  SLACK_USER_TOKEN,
+  OPENAI_API_KEY,
+  TODOIST_API_KEY,
+  MONGO_URL,
+  REDIS_URL,
+} = process.env;
 
-const CONTEXT_TIMEOUT = 5 * 60 * 1000; // 5 minut
-const CHECK_INTERVAL = 60 * 1000; // co minutę
+// Sprawdzenie wymaganych zmiennych środowiskowych
+const requiredEnvVars = [
+  'SLACK_SIGNING_SECRET',
+  'SLACK_USER_TOKEN',
+  'OPENAI_API_KEY',
+  'TODOIST_API_KEY',
+  'MONGO_URL',
+  'REDIS_URL',
+];
 
-// Inicjalizacja Slack Events API, klienta Slacka i Express
-const slackEvents = createEventAdapter(SLACK_SIGNING_SECRET);
-const slackClient = new WebClient(SLACK_USER_TOKEN);
-const app = express();
-
-app.use('/slack/events', slackEvents.expressMiddleware());
+const missingVars = requiredEnvVars.filter((varName) => !process.env[varName]);
+if (missingVars.length > 0) {
+  console.error(`❌ Brak wymaganych zmiennych środowiskowych: ${missingVars.join(', ')}`);
+  process.exit(1);
+}
 
 // Połączenie z MongoDB
-mongoose
-  .connect(MONGO_URL, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('✅ Połączono z MongoDB'))
-  .catch((error) => {
-    console.error('❌ Błąd połączenia z MongoDB:', error);
-    process.exit(1);
-  });
+mongoose.connect(MONGO_URL, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
+mongoose.connection.once('open', () => console.log('✅ Połączono z MongoDB'));
 
-// Schemat kontekstu
+// Modele danych
 const contextSchema = new mongoose.Schema({
-  participants: [String], // Nazwy uczestników rozmowy
-  channelId: String,
+  participants: [String],
+  lastActivity: Date,
   messages: [
     {
       sender: String,
@@ -43,57 +53,26 @@ const contextSchema = new mongoose.Schema({
       timestamp: Date,
     },
   ],
-  lastActivity: Date,
 });
-
 const Context = mongoose.model('Context', contextSchema);
 
-// Nasłuchiwanie wiadomości na Slacku
-slackEvents.on('message', async (event) => {
-  if (!event.text || event.bot_id) return;
+// Inicjalizacja aplikacji Slack i serwera
+const slackEvents = createEventAdapter(SLACK_SIGNING_SECRET);
+const slackClient = new WebClient(SLACK_USER_TOKEN);
+const app = express();
+app.use('/slack/events', slackEvents.expressMiddleware());
 
-  const { channel, user, text, ts } = event;
-
-  // Sprawdzanie czy wiadomość pochodzi z DM
-  if (channel.startsWith('D')) {
-    try {
-      const senderInfo = await slackClient.users.info({ user });
-      const senderName = senderInfo.user.real_name;
-
-      const conversationInfo = await slackClient.conversations.info({ channel });
-      const conversationUserId = conversationInfo.channel.user;
-      const conversationUserInfo = await slackClient.users.info({ user: conversationUserId });
-      const conversationUserName = conversationUserInfo.user.real_name;
-
-      console.log(`📩 Nowa wiadomość od: ${senderName}`);
-      console.log(`Treść: ${text}`);
-
-      // Szukaj istniejącego kontekstu
-      let context = await Context.findOne({ channelId: channel });
-
-      if (!context) {
-        // Jeśli brak kontekstu, utwórz nowy
-        context = new Context({
-          participants: [senderName, conversationUserName],
-          channelId: channel,
-          messages: [],
-          lastActivity: new Date(),
-        });
-        console.log(`📢 Rozpoczęto nowy kontekst: Rozmowa między: ${senderName} i ${conversationUserName}`);
-      }
-
-      // Dodaj wiadomość do kontekstu
-      context.messages.push({ sender: senderName, text, timestamp: new Date(parseFloat(ts) * 1000) });
-      context.lastActivity = new Date();
-      await context.save();
-    } catch (error) {
-      console.error('❌ Błąd podczas przetwarzania wiadomości:', error);
-    }
-  }
-});
+// Zmienne czasu
+const CONTEXT_TIMEOUT = 5 * 60 * 1000; // 5 minut
+const CHECK_INTERVAL = 1 * 60 * 1000; // Sprawdzanie co minutę
 
 // Funkcja przetwarzania kontekstu
 async function processContext(context) {
+  if (!context.messages || context.messages.length === 0) {
+    console.log(`⚠️ Kontekst dla ${context.participants.join(' i ')} jest pusty. Pomijanie przetwarzania.`);
+    return;
+  }
+
   const compiledMessages = context.messages
     .map((msg) => `${msg.sender}: ${msg.text}`)
     .join('\n');
@@ -123,7 +102,6 @@ async function processContext(context) {
     console.log(`📝 Analiza OpenAI:\n${analysis}`);
 
     if (/zadanie|task/i.test(analysis)) {
-      // Dodanie zadania do Todoist
       await axios.post(
         'https://api.todoist.com/rest/v2/tasks',
         {
@@ -145,23 +123,58 @@ async function processContext(context) {
   }
 }
 
-// Sprawdzanie nieaktywnych kontekstów
+// Obsługa wiadomości
+slackEvents.on('message', async (event) => {
+  if (event.bot_id || !event.channel.startsWith('D')) return;
+
+  try {
+    const userInfo = await slackClient.users.info({ user: event.user });
+    const recipientInfo = await slackClient.users.info({ user: event.channel_user });
+
+    const senderName = userInfo.user.real_name || 'Nieznany użytkownik';
+    const recipientName = recipientInfo.user.real_name || 'Nieznany odbiorca';
+
+    console.log(`📩 Nowa wiadomość od: ${senderName}\nTreść: ${event.text}`);
+
+    let context = await Context.findOne({ participants: { $all: [senderName, recipientName] } });
+
+    if (!context) {
+      console.log(`📢 Rozpoczęto nowy kontekst: Rozmowa między: ${senderName} i ${recipientName}`);
+      context = new Context({
+        participants: [senderName, recipientName],
+        lastActivity: new Date(),
+        messages: [],
+      });
+    }
+
+    context.lastActivity = new Date();
+    context.messages.push({
+      sender: senderName,
+      text: event.text || '',
+      timestamp: new Date(parseFloat(event.ts) * 1000),
+    });
+
+    await context.save();
+  } catch (error) {
+    console.error('❌ Błąd obsługi wiadomości:', error);
+  }
+});
+
+// Harmonogram sprawdzania kontekstów
 setInterval(async () => {
   const now = Date.now();
   const expiredContexts = await Context.find({
-    lastActivity: { $lt: new Date(now - CONTEXT_TIMEOUT) },
+    lastActivity: { $lte: new Date(now - CONTEXT_TIMEOUT) },
   });
 
   for (const context of expiredContexts) {
-    console.log(`🔄 Przetwarzanie zakończonego kontekstu dla: ${context.participants.join(' i ')}`);
+    console.log(`⏳ Przetwarzanie zakończonego kontekstu dla: ${context.participants.join(' i ')}`);
     await processContext(context);
     await Context.deleteOne({ _id: context._id });
-    console.log(`✅ Kontekst dla ${context.participants.join(' i ')} został usunięty.`);
+    console.log(`🗑️ Kontekst dla ${context.participants.join(' i ')} został usunięty.`);
   }
 }, CHECK_INTERVAL);
 
 // Start serwera
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log(`🚀 Aplikacja działa na porcie ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Aplikacja działa na porcie ${PORT}`));
