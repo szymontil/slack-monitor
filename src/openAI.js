@@ -13,12 +13,14 @@ The purpose of this prompt is to summarize a conversation to identify and catego
 <prompt_rules>
 - The AI MUST read the provided conversation and identify all tasks assigned to Szymon Til.
 - For each task, the AI MUST assign one of the labels: "Write an e-mail" or "Take action".
-- The AI MUST use a JSON object or JSON array to list all tasks found in the conversation.
-- UNDER NO CIRCUMSTANCES should the AI include tasks that Szymon Til assigns to someone else.
-- UNDER NO CIRCUMSTANCES should the AI include tasks that are not clearly and explicitly assigned to Szymon Til.
-- The AI MUST NOT create new labels beyond "Write an e-mail" and "Take action".
+- Tasks where the speaker uses first-person phrases (e.g., "muszę," "zrobię," "napiszę," "pojadę") SHOULD be identified as tasks for Szymon Til.
+- Tasks should be categorized and listed using a JSON or JSON array.
+- UNDER NO CIRCUMSTANCES should the AI include tasks not directly assigned to Szymon Til.
+- Tasks assigned to others by Szymon Til (e.g., "Daniel, napisz e-mail") MUST NOT be included as tasks for Szymon Til.
 - If no tasks are found, the AI MUST return a single JSON object: { "is_task": "no" }.
-- Conversation may be in Polish or English but AI MUST provide responses in English.
+- The AI MUST NOT create new labels beyond "Write an e-mail" and "Take action".
+- The AI MUST ignore any other information not directly related to identifying and categorizing the task.
+- Conversation may be in Polish or English, but the AI MUST provide answers in English.
 </prompt_rules>
 
 <prompt_examples>
@@ -34,39 +36,69 @@ AI: [
 
 USER: 
 """
-Szymon Til: Daniel, mógłbyś pomóc z raportem? 
-Daniel Dąbrowski: Jasne, ale musisz też napisać e-mail do zespołu z podsumowaniem postępów.
-Szymon Til: Zrozumiałem, zajmę się tym.
-"""
-AI: [
-  { "is_task": "yes", "task_type": "e-mail", "task_title": "Summarize progress for the team" }
-]
-
-USER: 
-"""
-Szymon Til: Daniel, musisz przygotować raport o stanie projektu do jutra.
-Daniel Dąbrowski: Okej, zrobię to.
+Szymon Til: Daniel, napisz proszę e-mail do Creme Bar.
+Daniel Dąbrowski: Jasne, zrobię to dziś.
 """
 AI: { "is_task": "no" }
 
 USER: 
 """
-Szymon Til: Pamiętaj, żeby przypomnieć mi, że muszę zamówić więcej materiałów na przyszły tydzień. Poza tym, musimy sfinalizować budżet przed piątkiem.
+Szymon Til: Muszę napisać e-mail do zespołu marketingowego o nadchodzącej kampanii.
 """
 AI: [
-  { "is_task": "yes", "task_type": "action", "task_title": "Order materials for next week" },
-  { "is_task": "yes", "task_type": "action", "task_title": "Finalize the budget plan before Friday" }
+  { "is_task": "yes", "task_type": "e-mail", "task_title": "Inform marketing team about the upcoming campaign" }
 ]
 
 USER: 
 """
-Szymon Til: Daniel, musisz zamówić materiały na przyszły tydzień.
-Daniel Dąbrowski: Okej, zrobię to. 
-A przy okazji, Szymon, musisz przygotować podsumowanie dla zespołu.
-Szymon Til: Zrozumiałem.
+Szymon Til: Dziś muszę zamówić więcej materiałów na przyszły tydzień. Daniel, przygotuj proszę raport do spotkania.
 """
 AI: [
-  { "is_task": "yes", "task_type": "action", "task_title": "Prepare summary for the team" }
+  { "is_task": "yes", "task_type": "action", "task_title": "Order materials for next week" }
+]
+
+USER: 
+"""
+Szymon Til: Przygotuję strategię na spotkanie. Muszę jeszcze wysłać e-mail do klienta o budżecie.
+"""
+AI: [
+  { "is_task": "yes", "task_type": "action", "task_title": "Prepare strategy for the meeting" },
+  { "is_task": "yes", "task_type": "e-mail", "task_title": "Inform client about budget" }
+]
+
+USER: 
+"""
+Kasia: Szymon, co sądzisz o dodaniu nowej opcji?
+Szymon Til: Myślę, że to dobry pomysł. Kasia, zajmij się proszę tym zadaniem.
+"""
+AI: { "is_task": "no" }
+
+USER: 
+"""
+Martyna: Musisz przygotować raport. Szymon, czy możesz wysłać e-mail do zespołu o zmianach w projekcie?
+Szymon Til: Tak, mogę się tym zająć.
+"""
+AI: [
+  { "is_task": "yes", "task_type": "e-mail", "task_title": "Inform team about project changes" }
+]
+
+USER: 
+"""
+Szymon Til: Muszę dziś zaplanować budżet oraz przygotować prezentację na konferencję.
+"""
+AI: [
+  { "is_task": "yes", "task_type": "action", "task_title": "Plan the budget" },
+  { "is_task": "yes", "task_type": "action", "task_title": "Prepare presentation for the conference" }
+]
+
+USER: 
+"""
+Daniel Dąbrowski: Przygotuj proszę strategię na spotkanie z klientem.
+Szymon Til: Jasne, zajmę się tym. Muszę też wysłać e-mail z ofertą.
+"""
+AI: [
+  { "is_task": "yes", "task_type": "action", "task_title": "Prepare strategy for client meeting" },
+  { "is_task": "yes", "task_type": "e-mail", "task_title": "Send email with the offer" }
 ]
 
 </prompt_examples>
@@ -93,7 +125,7 @@ ${fullContext}
         });
 
         const result = response.data.choices[0].message.content.trim();
-        cconsole.log(`📜 OpenAI Analysis Result:\n${JSON.stringify(parsedResult, null, 2)}`);
+        console.log(`📜 OpenAI Analysis Result:\n${JSON.stringify(parsedResult, null, 2)}`);
 
         const parsedResult = JSON.parse(result);
 
