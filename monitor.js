@@ -16,6 +16,9 @@ dotenv.config();
 // Konfiguracja limitów dla plików
 const FILE_SIZE_LIMIT = 10 * 1024 * 1024; // 10MB w bajtach
 
+// Na początku pliku po importach
+dotenv.config();
+
 // Sprawdzenie wymaganych zmiennych środowiskowych
 const requiredEnvVars = [
     'SLACK_SIGNING_SECRET',
@@ -24,16 +27,21 @@ const requiredEnvVars = [
     'OPENAI_API_KEY',
     'TODOIST_API_KEY',
     'MONGO_URL',
-    'REDISHOST',
-    'REDISPORT',
+    'REDIS_URL',  // Zamiast REDISHOST i REDISPORT używamy REDIS_URL
 ];
 
-requiredEnvVars.forEach((varName) => {
-    if (!process.env[varName]) {
-        console.error(`❌ Brak wymaganej zmiennej środowiskowej: ${varName}`);
-        process.exit(1);
-    }
-});
+// Sprawdzenie zmiennych środowiskowych
+const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingVars.length > 0) {
+    console.error('❌ Brak wymaganych zmiennych środowiskowych:');
+    missingVars.forEach(varName => {
+        console.error(`   - ${varName}`);
+    });
+    process.exit(1);
+} else {
+    console.log('✅ Wszystkie wymagane zmienne środowiskowe są ustawione');
+}
 
 // Połączenie z MongoDB
 mongoose.connect(process.env.MONGO_URL)
@@ -88,24 +96,9 @@ const slackEvents = createEventAdapter(process.env.SLACK_SIGNING_SECRET);
 const app = express();
 const slackClient = new WebClient(process.env.SLACK_USER_TOKEN);
 
-// Konfiguracja kolejki Redis z lepszą obsługą połączeń
+// Konfiguracja kolejki Redis dla Railway
 const contextQueue = new Queue('contextQueue', {
-    redis: {
-        host: process.env.REDISHOST,
-        port: process.env.REDISPORT,
-        password: process.env.REDIS_PASSWORD || '',
-        maxRetriesPerRequest: null,
-        enableReadyCheck: false,
-        retryStrategy: (times) => {
-            const delay = Math.min(times * 50, 2000);
-            console.log(`🔄 Próba ponownego połączenia z Redis (${times}): następna próba za ${delay}ms`);
-            return delay;
-        },
-        reconnectOnError: (err) => {
-            console.log('❌ Błąd połączenia Redis:', err);
-            return true; // true = próbuj ponownie połączyć
-        }
-    },
+    redis: process.env.REDIS_URL, // Używamy pełnego URL zamiast osobnych host/port
     defaultJobOptions: {
         attempts: 3,
         backoff: {
@@ -114,29 +107,38 @@ const contextQueue = new Queue('contextQueue', {
         },
         removeOnComplete: true,
         removeOnFail: false
+    },
+    limiter: {
+        max: 1000,
+        duration: 5000
     }
 });
 
-// Monitorowanie stanu Redis
+// Konfiguracja obsługi błędów i monitorowania
 contextQueue.on('error', (error) => {
     console.error('❌ Błąd kolejki Redis:', error);
-});
-
-contextQueue.on('waiting', (jobId) => {
-    console.log(`⏳ Zadanie ${jobId} oczekuje w kolejce`);
-});
-
-contextQueue.on('active', (job) => {
-    console.log(`▶️ Rozpoczęto przetwarzanie zadania ${job.id}`);
-});
-
-contextQueue.on('completed', (job) => {
-    console.log(`✅ Zadanie ${job.id} zakończone sukcesem`);
+    // Nie kończymy procesu przy błędzie Redis - aplikacja może działać dalej
 });
 
 contextQueue.on('failed', (job, error) => {
     console.error(`❌ Zadanie ${job.id} nie powiodło się:`, error);
 });
+
+// Funkcja do sprawdzania czy Redis jest wymagany dla danej operacji
+function isRedisRequired(operation) {
+    return ['processContext', 'addToQueue'].includes(operation);
+}
+
+// Funkcja do bezpiecznego dodawania zadań do kolejki
+async function safelyAddToQueue(data) {
+    try {
+        return await contextQueue.add(data);
+    } catch (error) {
+        console.error('❌ Nie można dodać zadania do kolejki Redis:', error);
+        // Tutaj możemy dodać alternatywną logikę, np. zapis do bazy
+        return null;
+    }
+}
 
 // Funkcja do sprawdzania stanu Redis
 async function checkRedisConnection() {
@@ -366,6 +368,29 @@ async function cleanupDatabase() {
 cron.schedule('0 0 * * *', async () => {
     console.log('🕐 Rozpoczynanie codziennego czyszczenia bazy...');
     await cleanupDatabase();
+});
+
+// Harmonogram sprawdzania nieaktywnych kontekstów co 10 minut
+cron.schedule('*/10 * * * *', async () => {
+    console.log('🕒 Sprawdzanie nieaktywnych kontekstów...');
+    const now = dayjs();
+
+    try {
+        // Znajdź konteksty nieaktywne od godziny
+        const inactiveContexts = await Context.find({ 
+            lastActivity: { $lte: now.subtract(60, 'minute').toDate() } 
+        });
+
+        for (const context of inactiveContexts) {
+            console.log(`Dodawanie kontekstu do kolejki dla kanału: ${context.channelId}`);
+            await safelyAddToQueue({ 
+                channelId: context.channelId, 
+                contextId: context._id 
+            });
+        }
+    } catch (error) {
+        console.error('❌ Błąd podczas sprawdzania kontekstów:', error);
+    }
 });
 
 // Obsługa kolejki kontekstów
