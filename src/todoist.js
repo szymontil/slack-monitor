@@ -1,10 +1,10 @@
 const axios = require('axios');
 
-async function addTaskToTodoist(taskContent) {
+async function addTaskToTodoist(taskTitle) {
     try {
         const response = await axios.post('https://api.todoist.com/rest/v2/tasks', {
-            content: taskContent,
-            due_string: 'today',
+            content: taskTitle,
+            due_string: 'today', // Optional: You can adjust the due date logic here
         }, {
             headers: {
                 'Content-Type': 'application/json',
@@ -12,7 +12,8 @@ async function addTaskToTodoist(taskContent) {
             },
         });
 
-        console.log('✅ Zadanie dodane do Todoist:', response.data);
+        console.log(`✅ Zadanie dodane do Todoist: ${taskTitle}`);
+        return response.data;
     } catch (error) {
         console.error('❌ Błąd podczas dodawania zadania do Todoist:', error.message);
     }
