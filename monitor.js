@@ -98,7 +98,7 @@ const slackClient = new WebClient(process.env.SLACK_USER_TOKEN);
 
 // Konfiguracja kolejki Redis z użyciem zmiennej referencyjnej
 const contextQueue = new Queue('contextQueue', {
-    redis: process.env.REDIS_URL,  // Zmieniamy z REDIS_CONNECTION na REDIS_URL
+    redis: process.env.REDIS_URL,
     defaultJobOptions: {
         attempts: 3,
         backoff: {
