@@ -56,10 +56,12 @@ const messageSchema = new Schema({
 });
 
 const contextSchema = new Schema({
-    channelId: { type: String, required: true, unique: true },
+    channelId: { type: String, required: true },
+    participantName: { type: String, required: true },
     messages: [{ type: Schema.Types.ObjectId, ref: 'Message' }],
     lastActivity: { type: Date, required: true },
     processed: { type: Boolean, default: false }, // Flaga przetworzenia
+    contextStartTime: { type: Date, required: true }, // Początek kontekstu
 });
 
 const Message = mongoose.model('Message', messageSchema);
@@ -123,11 +125,25 @@ slackEvents.on('message', async (event) => {
 
         await message.save();
 
-        const context = await Context.findOneAndUpdate(
-            { channelId: event.channel },
-            { $set: { lastActivity: new Date() }, $push: { messages: message._id } },
-            { new: true, upsert: true }
-        );
+        let context = await Context.findOne({ channelId: event.channel, processed: false });
+
+        if (!context) {
+            // Tworzenie nowego kontekstu
+            context = new Context({
+                channelId: event.channel,
+                participantName: senderName,
+                messages: [message._id],
+                lastActivity: new Date(),
+                contextStartTime: new Date(),
+            });
+            console.log(`📢 Rozpoczęto nowy kontekst: Rozmowa z: ${senderName}`);
+        } else {
+            // Aktualizacja istniejącego kontekstu
+            context.messages.push(message._id);
+            context.lastActivity = new Date();
+        }
+
+        await context.save();
 
         console.log(`📩 Nowa wiadomość od: ${senderName}`);
         console.log(`Treść: ${event.text}`);
@@ -147,7 +163,6 @@ contextQueue.process(async (job) => {
         return;
     }
 
-    // Budowanie kontekstu i ograniczanie długości wiadomości
     const messagesText = context.messages.map(msg => `${msg.senderName}: ${msg.text}`).join('\n');
     const maxTokenLength = 3000; // Maksymalna długość wiadomości w znakach
     const trimmedMessagesText = messagesText.length > maxTokenLength
@@ -155,7 +170,7 @@ contextQueue.process(async (job) => {
         : messagesText;
 
     try {
-        console.log(`📝 Przesyłanie kontekstu do OpenAI dla kanału: ${channelId}`);
+        console.log(`📝 Przesyłanie zamkniętego kontekstu do OpenAI dla kanału: ${channelId}`);
         console.log('📤 Przesyłane dane:', trimmedMessagesText);
 
         const openAIResponse = await axios.post('https://api.openai.com/v1/chat/completions', {
@@ -207,8 +222,6 @@ async function addTaskToTodoist(task) {
             due_string: 'today',
         };
 
-        console.log('📤 Dane przesyłane do Todoist:', todoistData);
-
         const response = await axios.post('https://api.todoist.com/rest/v2/tasks', todoistData, {
             headers: {
                 'Authorization': `Bearer ${process.env.TODOIST_API_KEY}`,
@@ -238,8 +251,6 @@ cron.schedule('*/1 * * * *', async () => {
             channelId: context.channelId,
             contextId: context._id,
         });
-
-        await Context.findByIdAndUpdate(context._id, { processed: true });
     }
 });
 
