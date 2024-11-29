@@ -1,8 +1,9 @@
 const express = require('express');
+const slackEvents = require('./slackMonitor');
 const mongoose = require('mongoose');
+const { checkClosedContexts } = require('./slackMonitor');
 const dotenv = require('dotenv');
 
-// Wczytaj zmienne środowiskowe
 dotenv.config();
 
 const app = express();
@@ -11,41 +12,16 @@ const PORT = process.env.PORT || 8080;
 // Połączenie z MongoDB
 mongoose.connect(process.env.MONGO_URL)
     .then(() => console.log('✅ Połączono z MongoDB'))
-    .catch((err) => console.error('❌ Błąd połączenia z MongoDB:', err));
+    .catch(err => console.error('❌ Błąd połączenia z MongoDB:', err));
 
-// Middleware do parsowania JSON
-app.use(express.json());
 
-// Model danych dla kontekstów
-const contextSchema = new mongoose.Schema({
-    sender: String,
-    recipient: String,
-    messages: [String],
-    createdAt: { type: Date, default: Date.now },
-});
+// Middleware Slack
+app.use('/slack/events', slackEvents.expressMiddleware());
 
-const Context = mongoose.model('Context', contextSchema);
+// Interwał sprawdzania zamkniętych kontekstów
+const { CHECK_INTERVAL } = require('./config');
 
-// Endpoint API do pobierania danych kontekstów
-app.get('/api/contexts', async (req, res) => {
-    try {
-        const contexts = await Context.find();
-        if (contexts.length === 0) {
-            return res.status(404).json({ message: 'Brak dostępnych kontekstów.' });
-        }
-        res.json(contexts);
-    } catch (err) {
-        console.error('❌ Błąd podczas pobierania kontekstów:', err);
-        res.status(500).send('Błąd serwera');
-    }
-});
+setInterval(checkClosedContexts, CHECK_INTERVAL); // co 5 minut
 
-// Endpoint testowy
-app.get('/', (req, res) => {
-    res.send('API is running...');
-});
 
-// Start serwera
-app.listen(PORT, () => {
-    console.log(`🚀 Serwer działa na porcie ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Aplikacja działa na porcie ${PORT}`));

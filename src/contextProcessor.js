@@ -9,11 +9,10 @@ async function processContext(context) {
     try {
         const analysis = await analyzeContextWithOpenAI(fullContext);
 
-        if (analysis === "no" || (Array.isArray(analysis) && analysis.length === 0)) {
+        if (analysis.is_task === "no") {
             console.log('ℹ️ Wynik analizy OpenAI: Brak zadań przypisanych do Szymona Tila.');
             return;
         }
-        
 
         if (Array.isArray(analysis)) {
             console.log(`✅ Znaleziono ${analysis.length} zadanie(-a/-ń):`);
