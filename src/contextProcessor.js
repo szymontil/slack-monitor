@@ -1,3 +1,7 @@
+const { analyzeContextWithOpenAI } = require('./openAI');
+const { addTaskToTodoist } = require('./todoist');
+const { createEmailDraft } = require('./createEmailDraft');
+
 async function processContext(context) {
     const fullContext = context.messages.join('\n');
     console.log('🔄 Przetwarzanie zamkniętego kontekstu...');
@@ -46,10 +50,11 @@ async function processContext(context) {
                 }
             }
         } else {
-            // Logujemy nieoczekiwany format bez rzucania błędu
             console.log('ℹ️ Otrzymano nieoczekiwany format analizy:', JSON.stringify(analysis, null, 2));
         }
     } catch (error) {
         console.error('❌ Błąd podczas przetwarzania kontekstu:', error.message);
     }
 }
+
+module.exports = processContext;

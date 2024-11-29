@@ -1,7 +1,7 @@
 const { createEventAdapter } = require('@slack/events-api');
 const { WebClient } = require('@slack/web-api');
 const { CONTEXT_TIMEOUT } = require('./config');
-const { processContext } = require('./contextProcessor');
+const processContext = require('./contextProcessor');
 
 const slackClient = new WebClient(process.env.SLACK_USER_TOKEN);
 const slackEvents = createEventAdapter(process.env.SLACK_SIGNING_SECRET);
@@ -60,17 +60,23 @@ async function checkClosedContexts() {
     console.log('🕒 Rozpoczynanie sprawdzania zamkniętych kontekstów...');
     const now = Date.now();
 
-    for (const [channelId, context] of Object.entries(contexts)) {
-        if (now - context.lastActivity >= CONTEXT_TIMEOUT) {
-            console.log(`📢 Kontekst dla ${context.senderName} i ${context.recipientName} został zamknięty.`);
-            console.log('Pełny kontekst:\n' + context.messages.join('\n'));
+    try {
+        for (const [channelId, context] of Object.entries(contexts)) {
+            if (now - context.lastActivity >= CONTEXT_TIMEOUT) {
+                console.log(`📢 Kontekst dla ${context.senderName} i ${context.recipientName} został zamknięty.`);
+                console.log('Pełny kontekst:\n' + context.messages.join('\n'));
 
-            // Przekazanie zamkniętego kontekstu do modułu obsługującego przetwarzanie
-            await processContext(context);
+                if (typeof processContext === 'function') {
+                    await processContext(context);
+                } else {
+                    console.error('❌ processContext nie jest funkcją');
+                }
 
-            // Usunięcie kontekstu
-            delete contexts[channelId];
+                delete contexts[channelId];
+            }
         }
+    } catch (error) {
+        console.error('❌ Błąd podczas sprawdzania kontekstów:', error.message);
     }
 }
 
