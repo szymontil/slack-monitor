@@ -65,8 +65,6 @@ ${fullContext}
           },
       });
 
-      console.log(`🔍 Pełna odpowiedź OpenAI:\n${JSON.stringify(response.data, null, 2)}`);
-
       // Extract content from the OpenAI response
       const content = response.data.choices[0].message.content.trim();
 
@@ -82,6 +80,7 @@ ${fullContext}
       const summary = summaryMatch ? summaryMatch[1].trim() : null;
       const tasks = JSON.parse(tasksMatch[1].trim());
 
+      // Logujemy tylko istotne informacje
       if (summary) {
           console.log(`📋 Summary:\n${summary}`);
       }
@@ -91,7 +90,6 @@ ${fullContext}
               if (task.task_type === "e-mail") {
                   console.log(`✉️ Tworzenie szkicu e-maila: ${task.task_title}`);
                   
-                  // Extract email-specific fields
                   const recipient = task.recipient || "default@example.com";
                   const subject = task.subject || "No subject provided";
                   const body = task.body || "No body content provided";
@@ -112,7 +110,7 @@ ${fullContext}
                   }
               }
           });
-      } else {
+      } else if (tasks.is_task === "no") {
           console.log('ℹ️ No tasks found in conversation.');
       }
 
