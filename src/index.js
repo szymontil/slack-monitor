@@ -1,43 +1,51 @@
 const express = require('express');
-const path = require('path');
-const slackEvents = require('./slackMonitor');
 const mongoose = require('mongoose');
-const { checkClosedContexts } = require('./slackMonitor');
 const dotenv = require('dotenv');
+const path = require('path');
 
+// Wczytaj zmienne środowiskowe
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 
 // Połączenie z MongoDB
-mongoose.connect(process.env.MONGO_URL)
+mongoose.connect(process.env.MONGO_URL, { useNewUrlParser: true, useUnifiedTopology: true })
     .then(() => console.log('✅ Połączono z MongoDB'))
-    .catch(err => console.error('❌ Błąd połączenia z MongoDB:', err));
+    .catch((err) => console.error('❌ Błąd połączenia z MongoDB:', err));
 
-// Middleware Slack
-app.use('/slack/events', slackEvents.expressMiddleware());
+// Middleware do parsowania JSON
+app.use(express.json());
 
-// Serwowanie frontendu
-app.use(express.static(path.join(__dirname, '../frontend')));
-
-// API do podglądu kontekstów
-app.get('/api/contexts', (req, res) => {
-    // W przykładzie zwracamy przykładowe dane, możesz to podłączyć do bazy MongoDB
-    res.json([
-        { senderName: 'Szymon Til', recipientName: 'Daniel Dąbrowski', lastMessage: 'Muszę wysłać maila.' },
-        { senderName: 'Szymon Til', recipientName: 'Martyna Kowalska', lastMessage: 'Pamiętaj o raporcie.' }
-    ]);
+// Model danych dla kontekstów (przykładowa struktura)
+const contextSchema = new mongoose.Schema({
+    id: String,
+    messages: [String],
+    createdAt: { type: Date, default: Date.now },
 });
 
-// Serwowanie głównej strony frontendowej
+const Context = mongoose.model('Context', contextSchema);
+
+// Endpoint API do pobierania danych kontekstów
+app.get('/api/contexts', async (req, res) => {
+    try {
+        const contexts = await Context.find(); // Pobiera wszystkie konteksty z bazy
+        res.json(contexts);
+    } catch (err) {
+        console.error('❌ Błąd podczas pobierania kontekstów:', err);
+        res.status(500).send('Błąd serwera');
+    }
+});
+
+// Obsługa plików statycznych frontendu React
+const frontendPath = path.join(__dirname, '../frontend/build');
+app.use(express.static(frontendPath));
+
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../frontend/index.html'));
+    res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
-// Interwał sprawdzania zamkniętych kontekstów
-const { CHECK_INTERVAL } = require('./config');
-setInterval(checkClosedContexts, CHECK_INTERVAL);
-
-// Start aplikacji
-app.listen(PORT, () => console.log(`🚀 Aplikacja działa na porcie ${PORT}`));
+// Start serwera
+app.listen(PORT, () => {
+    console.log(`🚀 Serwer działa na porcie ${PORT}`);
+});
