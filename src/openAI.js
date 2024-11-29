@@ -13,6 +13,23 @@ The purpose of this prompt is to summarize a conversation to identify and catego
 <prompt_rules>
 - The AI MUST read the provided conversation and identify all tasks assigned to Szymon Til.
 - For each task, the AI MUST assign one of the labels: "Write an e-mail" or "Take action".
+- The AI MUST use a JSON array to list all tasks found in the conversation.
+- UNDER NO CIRCUMSTANCES should the AI include tasks not directly assigned to Szymon Til.
+- The AI MUST NOT create new labels beyond "Write an e-mail" and "Take action".
+- If no tasks are found, the AI MUST return:
+  { "is_task": "no" }
+- Conversation may be in Polish or English but AI MUST provide answers in English.
+</prompt_rules>
+
+[Summarize and Categorize Task]
+
+<prompt_objective>
+The purpose of this prompt is to summarize a conversation to identify and categorize a task assigned to Szymon Til.
+</prompt_objective>
+
+<prompt_rules>
+- The AI MUST read the provided conversation and identify all tasks assigned to Szymon Til.
+- For each task, the AI MUST assign one of the labels: "Write an e-mail" or "Take action".
 - Tasks where the speaker uses first-person phrases (e.g., "muszę," "zrobię," "napiszę," "pojadę") SHOULD be identified as tasks for Szymon Til.
 - Tasks should be categorized and listed using a JSON or JSON array.
 - UNDER NO CIRCUMSTANCES should the AI include tasks not directly assigned to Szymon Til.
@@ -106,16 +123,16 @@ AI: [
 <prompt_input>
 ${fullContext}
 </prompt_input>
-`;
+    `;
 
     try {
         const response = await axios.post('https://api.openai.com/v1/chat/completions', {
             model: 'gpt-4',
             messages: [
-                { role: 'system', content: 'Analyze the conversation to identify and categorize tasks as per the given rules and examples.' },
-                { role: 'user', content: prompt }
+                { role: 'system', content: prompt },
+                { role: 'user', content: fullContext }
             ],
-            max_tokens: 500,
+            max_tokens: 300,
             temperature: 0.2,
         }, {
             headers: {
@@ -125,8 +142,7 @@ ${fullContext}
         });
 
         const result = response.data.choices[0].message.content.trim();
-        console.log(`📜 OpenAI Analysis Result:\n${JSON.stringify(parsedResult, null, 2)}`);
-
+        console.log(`📜 OpenAI Analysis Result:\n${result}`);
         const parsedResult = JSON.parse(result);
 
         // Działanie w zależności od wyniku analizy
