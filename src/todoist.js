@@ -1,9 +1,13 @@
 const axios = require('axios');
 
 async function addTaskToTodoist(taskTitle) {
+    if (!process.env.TODOIST_API_KEY) {
+        throw new Error('Brak klucza API Todoist w zmiennych środowiskowych');
+    }
+
     const taskData = {
         content: taskTitle,
-        due_string: 'today', // Optional: Adjust the due date logic here
+        due_string: 'today',
     };
 
     try {
@@ -15,11 +19,39 @@ async function addTaskToTodoist(taskTitle) {
             },
         });
 
-        console.log(`✅ Zadanie dodane do Todoist: ${taskTitle}`);
+        console.log('📥 Odpowiedź z Todoist:', {
+            status: response.status,
+            data: response.data
+        });
+
         return response.data;
     } catch (error) {
-        console.error('❌ Błąd podczas dodawania zadania do Todoist:', error.message);
+        console.error('❌ Błąd podczas dodawania zadania do Todoist:', {
+            message: error.message,
+            response: error.response?.data,
+            status: error.response?.status,
+            headers: error.response?.headers
+        });
+        throw error;
     }
 }
 
-module.exports = { addTaskToTodoist };
+async function verifyTodoistConnection() {
+    try {
+        const response = await axios.get('https://api.todoist.com/rest/v2/projects', {
+            headers: {
+                'Authorization': `Bearer ${process.env.TODOIST_API_KEY}`,
+            },
+        });
+        console.log('✅ Połączenie z Todoist działa poprawnie');
+        return true;
+    } catch (error) {
+        console.error('❌ Błąd połączenia z Todoist:', error.message);
+        return false;
+    }
+}
+
+module.exports = { 
+    addTaskToTodoist,
+    verifyTodoistConnection
+};

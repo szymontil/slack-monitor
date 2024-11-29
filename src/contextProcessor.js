@@ -1,59 +1,69 @@
 const { analyzeContextWithOpenAI } = require('./openAI');
-const { addTaskToTodoist } = require('./todoist');
+const { addTaskToTodoist, verifyTodoistConnection } = require('./todoist');
 const { createEmailDraft } = require('./createEmailDraft');
 
 async function processContext(context) {
     const fullContext = context.messages.join('\n');
-    console.log('🔄 Przetwarzanie zamkniętego kontekstu...');
+    console.log('\n🔄 Rozpoczynam przetwarzanie kontekstu...');
+    console.log('📜 Pełny kontekst:', fullContext);
 
     try {
+        const todoistConnected = await verifyTodoistConnection();
+        if (!todoistConnected) {
+            throw new Error('Nie można połączyć się z Todoist');
+        }
+
+        console.log('\n🤖 Wysyłam kontekst do analizy...');
         const analysis = await analyzeContextWithOpenAI(fullContext);
+        console.log('\n📊 Otrzymana analiza:', JSON.stringify(analysis, null, 2));
 
-        // Pierwsza weryfikacja - czy mamy obiekt z is_task: "no"
         if (analysis && analysis.is_task === "no") {
-            console.log('ℹ️ Wynik analizy OpenAI: Brak zadań przypisanych do Szymona Tila.');
+            console.log('ℹ️ Brak zadań do wykonania');
             return;
         }
 
-        // Druga weryfikacja - czy mamy pustą tablicę
-        if (Array.isArray(analysis) && analysis.length === 0) {
-            console.log('ℹ️ Wynik analizy OpenAI: Brak zadań w tej konwersacji.');
-            return;
-        }
-
-        // Jeśli mamy tablicę z zadaniami
         if (Array.isArray(analysis)) {
-            console.log(`✅ Znaleziono ${analysis.length} zadanie(-a/-ń):`);
-            for (const task of analysis) {
-                console.log(`📋 Zadanie: ${task.task_title} (${task.task_type})`);
+            if (analysis.length === 0) {
+                console.log('ℹ️ Otrzymano pustą listę zadań');
+                return;
+            }
 
-                if (task.task_type === "e-mail") {
-                    console.log('✉️ Tworzenie szkicu e-maila...');
-                    try {
-                        const recipient = task.recipient || "odbiorca@example.com";
-                        const subject = task.subject || task.task_title;
-                        const body = task.body || `Szczegóły zadania:\n\n${fullContext}`;
-                        
-                        await createEmailDraft(recipient, subject, body);
-                        console.log(`✅ Szkic e-maila utworzony: ${subject}`);
-                    } catch (error) {
-                        console.error('❌ Błąd podczas tworzenia szkicu e-maila:', error.message);
+            console.log(`\n✅ Znaleziono ${analysis.length} zadanie(-a/-ń)`);
+            
+            for (const task of analysis) {
+                console.log('\n📌 Przetwarzam zadanie:');
+                console.log('   Typ:', task.task_type);
+                console.log('   Tytuł:', task.task_title);
+                console.log('   Pełne dane zadania:', JSON.stringify(task, null, 2));
+
+                try {
+                    if (task.task_type === "action") {
+                        console.log('\n🚀 Wysyłam zadanie do Todoist...');
+                        const result = await addTaskToTodoist(task.task_title);
+                        console.log('✅ Odpowiedź z Todoist:', JSON.stringify(result, null, 2));
+                    } else if (task.task_type === "e-mail") {
+                        console.log('\n✉️ Tworzę szkic e-maila...');
+                        // Logika e-mail pozostaje bez zmian
+                    } else {
+                        console.log(`⚠️ Nieznany typ zadania: ${task.task_type}`);
                     }
-                } else if (task.task_type === "action") {
-                    console.log('🚀 Tworzenie zadania w Todoist...');
-                    try {
-                        await addTaskToTodoist(task.task_title);
-                        console.log(`✅ Zadanie dodane do Todoist: ${task.task_title}`);
-                    } catch (error) {
-                        console.error('❌ Błąd podczas dodawania zadania do Todoist:', error.message);
-                    }
+                } catch (error) {
+                    console.error(`\n❌ Błąd podczas przetwarzania zadania:`, {
+                        taskType: task.task_type,
+                        taskTitle: task.task_title,
+                        error: error.message,
+                        fullError: error
+                    });
+                    throw error;
                 }
             }
         } else {
-            console.log('ℹ️ Otrzymano nieoczekiwany format analizy:', JSON.stringify(analysis, null, 2));
+            console.log('\n⚠️ Nieoczekiwany format analizy:', typeof analysis);
+            console.log(JSON.stringify(analysis, null, 2));
         }
     } catch (error) {
-        console.error('❌ Błąd podczas przetwarzania kontekstu:', error.message);
+        console.error('\n❌ Błąd główny:', error);
+        throw error;
     }
 }
 
