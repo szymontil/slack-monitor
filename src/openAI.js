@@ -79,22 +79,32 @@ async function analyzeContextWithOpenAI(fullContext) {
         }
 
         const summary = summaryMatch ? summaryMatch[1].trim() : null;
+
+        // Przygotowanie tekstu JSON do parsowania
+        let tasksText = tasksMatch[1].trim();
         
-        // Poprawiona obsługa parsowania JSON
+        // Zabezpieczenie znaków nowej linii w treści e-maila
+        tasksText = tasksText.replace(/\n+/g, '\\n');
+        
+        // Próba parsowania JSON
         let tasks;
         try {
-            const tasksString = tasksMatch[1].trim();
-            tasks = JSON.parse(tasksString);
+            tasks = JSON.parse(tasksText);
             
-            // Dodatkowa walidacja struktury
-            if (tasks === null || tasks === undefined) {
-                console.log('ℹ️ Nieprawidłowa struktura odpowiedzi - null lub undefined');
-                return { "is_task": "no" };
+            // Jeśli mamy tablicę zadań, przywróćmy prawidłowe znaki nowej linii w treści e-maili
+            if (Array.isArray(tasks)) {
+                tasks = tasks.map(task => {
+                    if (task.body) {
+                        task.body = task.body.replace(/\\n/g, '\n');
+                    }
+                    return task;
+                });
             }
+
         } catch (parseError) {
             console.error('❌ Błąd parsowania JSON:', {
                 message: parseError.message,
-                rawData: tasksMatch[1].trim()
+                rawData: tasksText
             });
             return { "is_task": "no" };
         }
@@ -105,7 +115,7 @@ async function analyzeContextWithOpenAI(fullContext) {
         }
 
         if (Array.isArray(tasks) && tasks.length > 0) {
-            tasks.forEach(async task => {
+            for (const task of tasks) {
                 if (task.task_type === "e-mail") {
                     console.log(`✉️ Tworzenie szkicu e-maila: ${task.task_title}`);
                     
@@ -128,7 +138,7 @@ async function analyzeContextWithOpenAI(fullContext) {
                         console.error('❌ Błąd podczas dodawania zadania do Todoist:', error.message);
                     }
                 }
-            });
+            }
         } else if (tasks.is_task === "no") {
             console.log('ℹ️ No tasks found in conversation.');
         }
@@ -137,8 +147,7 @@ async function analyzeContextWithOpenAI(fullContext) {
     } catch (error) {
         console.error('❌ Błąd podczas analizy OpenAI:', {
             message: error.message,
-            response: error.response?.data,
-            parsingError: 'Błąd parsowania JSON'
+            response: error.response?.data
         });
         return { "is_task": "no" };
     }
