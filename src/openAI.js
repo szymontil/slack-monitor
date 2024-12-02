@@ -52,11 +52,14 @@ async function analyzeContextWithOpenAI(fullContext) {
 
     try {
         const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-            model: 'gpt-4-turbo',
             messages: [
-                { role: 'system', content: prompt },
+                {
+                    role: 'system',
+                    content: `${prompt}\nIMPORTANT: Always return tasks in valid JSON format as shown in examples. Never return markdown-style lists.`
+                },
                 { role: 'user', content: fullContext }
             ],
+            model: 'gpt-4-turbo',
             max_tokens: 500,
             temperature: 0.2,
         }, {
@@ -66,41 +69,34 @@ async function analyzeContextWithOpenAI(fullContext) {
             },
         });
 
-        // Extract content from the OpenAI response
         const content = response.data.choices[0].message.content.trim();
-
-        // Split the response into Summary and Tasks
-        const summaryMatch = content.match(/\*\*Summary:\*\*(.*?)\*\*Tasks:\*\*/s);
         const tasksMatch = content.match(/\*\*Tasks:\*\*(.*)/s);
 
         if (!tasksMatch) {
-            console.log('ℹ️ OpenAI did not return tasks.');
             return { "is_task": "no" };
         }
 
-        const summary = summaryMatch ? summaryMatch[1].trim() : null;
-
-        // Przygotowanie tekstu JSON do parsowania
         let tasksText = tasksMatch[1].trim();
-        
-        // Zabezpieczenie znaków nowej linii w treści e-maila
-        tasksText = tasksText.replace(/\n+/g, '\\n');
-        
-        // Próba parsowania JSON
-        let tasks;
-        try {
-            tasks = JSON.parse(tasksText);
-            
-            // Jeśli mamy tablicę zadań, przywróćmy prawidłowe znaki nowej linii w treści e-maili
-            if (Array.isArray(tasks)) {
-                tasks = tasks.map(task => {
-                    if (task.body) {
-                        task.body = task.body.replace(/\\n/g, '\n');
-                    }
-                    return task;
-                });
-            }
 
+        // Próba konwersji markdown na format JSON
+        if (tasksText.startsWith('-')) {
+            const taskDetails = tasksText.match(/Task Type:\s*(.*?)\n.*?Task Title:\s*(.*?)(\n|$)/s);
+            if (taskDetails) {
+                const [, type, title] = taskDetails;
+                tasksText = JSON.stringify([{
+                    "is_task": "yes",
+                    "task_type": type.toLowerCase().includes('email') ? 'e-mail' : 'action',
+                    "task_title": title.trim()
+                }]);
+            } else {
+                return { "is_task": "no" };
+            }
+        }
+
+        // Próba parsowania JSON
+        try {
+            const tasks = JSON.parse(tasksText);
+            return tasks;
         } catch (parseError) {
             console.error('❌ Błąd parsowania JSON:', {
                 message: parseError.message,
@@ -109,46 +105,8 @@ async function analyzeContextWithOpenAI(fullContext) {
             return { "is_task": "no" };
         }
 
-        // Logujemy podsumowanie
-        if (summary) {
-            console.log(`📋 Summary:\n${summary}`);
-        }
-
-        if (Array.isArray(tasks) && tasks.length > 0) {
-            for (const task of tasks) {
-                if (task.task_type === "e-mail") {
-                    console.log(`✉️ Tworzenie szkicu e-maila: ${task.task_title}`);
-                    
-                    const recipient = task.recipient || "default@example.com";
-                    const subject = task.subject || "No subject provided";
-                    const body = task.body || "No body content provided";
-
-                    try {
-                        await createEmailDraft(recipient, subject, body);
-                        console.log(`✅ Szkic e-maila utworzony: ${subject}`);
-                    } catch (error) {
-                        console.error('❌ Błąd podczas tworzenia szkicu e-maila:', error.message);
-                    }
-                } else if (task.task_type === "action") {
-                    console.log(`🚀 Tworzenie zadania w Todoist: ${task.task_title}`);
-                    try {
-                        await addTaskToTodoist(task.task_title);
-                        console.log(`✅ Zadanie dodane do Todoist: ${task.task_title}`);
-                    } catch (error) {
-                        console.error('❌ Błąd podczas dodawania zadania do Todoist:', error.message);
-                    }
-                }
-            }
-        } else if (tasks.is_task === "no") {
-            console.log('ℹ️ No tasks found in conversation.');
-        }
-
-        return tasks;
     } catch (error) {
-        console.error('❌ Błąd podczas analizy OpenAI:', {
-            message: error.message,
-            response: error.response?.data
-        });
+        console.error('❌ Błąd podczas analizy OpenAI:', error);
         return { "is_task": "no" };
     }
 }
