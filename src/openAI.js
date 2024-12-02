@@ -51,54 +51,97 @@ async function analyzeContextWithOpenAI(fullContext) {
     `;
 
     try {
-      console.log('🤖 Wysyłanie kontekstu do analizy OpenAI...');
-      const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-          model: 'gpt-4-turbo',
-          messages: [
-              { role: 'system', content: prompt },
-              { role: 'user', content: fullContext }
-          ],
-          max_tokens: 500,
-          temperature: 0.2,
-      }, {
-          headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-          },
-      });
+        const response = await axios.post('https://api.openai.com/v1/chat/completions', {
+            model: 'gpt-4-turbo',
+            messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: fullContext }
+            ],
+            max_tokens: 500,
+            temperature: 0.2,
+        }, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+            },
+        });
 
-      const content = response.data.choices[0].message.content.trim();
-      console.log('\n📝 Surowa odpowiedź z OpenAI:', content);
+        // Extract content from the OpenAI response
+        const content = response.data.choices[0].message.content.trim();
 
-      const summaryMatch = content.match(/\*\*Summary:\*\*(.*?)\*\*Tasks:\*\*/s);
-      const tasksMatch = content.match(/\*\*Tasks:\*\*(.*)/s);
+        // Split the response into Summary and Tasks
+        const summaryMatch = content.match(/\*\*Summary:\*\*(.*?)\*\*Tasks:\*\*/s);
+        const tasksMatch = content.match(/\*\*Tasks:\*\*(.*)/s);
 
-      if (!tasksMatch) {
-          console.log('⚠️ Nie znaleziono sekcji Tasks w odpowiedzi');
-          return { "is_task": "no" };
-      }
+        if (!tasksMatch) {
+            console.log('ℹ️ OpenAI did not return tasks.');
+            return { "is_task": "no" };
+        }
 
-      const tasksJson = tasksMatch[1].trim();
-      console.log('\n📋 Wyodrębniona sekcja Tasks (przed parsowaniem):', tasksJson);
+        const summary = summaryMatch ? summaryMatch[1].trim() : null;
+        
+        // Poprawiona obsługa parsowania JSON
+        let tasks;
+        try {
+            const tasksString = tasksMatch[1].trim();
+            tasks = JSON.parse(tasksString);
+            
+            // Dodatkowa walidacja struktury
+            if (tasks === null || tasks === undefined) {
+                console.log('ℹ️ Nieprawidłowa struktura odpowiedzi - null lub undefined');
+                return { "is_task": "no" };
+            }
+        } catch (parseError) {
+            console.error('❌ Błąd parsowania JSON:', {
+                message: parseError.message,
+                rawData: tasksMatch[1].trim()
+            });
+            return { "is_task": "no" };
+        }
 
-      const tasks = JSON.parse(tasksJson);
-      console.log('\n🔍 Sparsowane zadania (JSON):', JSON.stringify(tasks, null, 2));
+        // Logujemy podsumowanie
+        if (summary) {
+            console.log(`📋 Summary:\n${summary}`);
+        }
 
-      const summary = summaryMatch ? summaryMatch[1].trim() : null;
-      if (summary) {
-          console.log('\n📝 Podsumowanie:', summary);
-      }
+        if (Array.isArray(tasks) && tasks.length > 0) {
+            tasks.forEach(async task => {
+                if (task.task_type === "e-mail") {
+                    console.log(`✉️ Tworzenie szkicu e-maila: ${task.task_title}`);
+                    
+                    const recipient = task.recipient || "default@example.com";
+                    const subject = task.subject || "No subject provided";
+                    const body = task.body || "No body content provided";
 
-      return tasks;
+                    try {
+                        await createEmailDraft(recipient, subject, body);
+                        console.log(`✅ Szkic e-maila utworzony: ${subject}`);
+                    } catch (error) {
+                        console.error('❌ Błąd podczas tworzenia szkicu e-maila:', error.message);
+                    }
+                } else if (task.task_type === "action") {
+                    console.log(`🚀 Tworzenie zadania w Todoist: ${task.task_title}`);
+                    try {
+                        await addTaskToTodoist(task.task_title);
+                        console.log(`✅ Zadanie dodane do Todoist: ${task.task_title}`);
+                    } catch (error) {
+                        console.error('❌ Błąd podczas dodawania zadania do Todoist:', error.message);
+                    }
+                }
+            });
+        } else if (tasks.is_task === "no") {
+            console.log('ℹ️ No tasks found in conversation.');
+        }
 
-  } catch (error) {
-      console.error('❌ Błąd podczas analizy OpenAI:', {
-          message: error.message,
-          response: error.response?.data,
-          parsingError: error.name === 'SyntaxError' ? 'Błąd parsowania JSON' : undefined
-      });
-      throw error;
-  }
+        return tasks;
+    } catch (error) {
+        console.error('❌ Błąd podczas analizy OpenAI:', {
+            message: error.message,
+            response: error.response?.data,
+            parsingError: 'Błąd parsowania JSON'
+        });
+        return { "is_task": "no" };
+    }
 }
 
 module.exports = { analyzeContextWithOpenAI };
